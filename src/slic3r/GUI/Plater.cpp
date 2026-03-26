@@ -15778,6 +15778,32 @@ void Plater::send_gcode_legacy(int plate_idx, Export3mfProgressFn proFn, bool us
             pDlg = std::make_unique<ElegooPrintHostSendDialog>(default_output_file, upload_job.printhost->get_post_upload_actions(), groups,
                                                                storage_paths, storage_names,
                                                                config->get_bool("open_device_tab_post_upload"));
+        } else if (host_type == htFlashforge) {
+            std::vector<FilamentInfo> project_filaments;
+            PlateDataPtrs               plate_data_list;
+            const DynamicPrintConfig&   cfg                 = wxGetApp().preset_bundle->full_config();
+            const auto*                 filament_color      = dynamic_cast<const ConfigOptionStrings*>(cfg.option("filament_colour"));
+            const auto*                 filament_id_opt     = dynamic_cast<const ConfigOptionStrings*>(cfg.option("filament_ids"));
+
+            p->partplate_list.store_to_3mf_structure(plate_data_list, true, plate_idx);
+            if (!plate_data_list.empty() && plate_data_list.front() != nullptr) {
+                for (auto& filament : plate_data_list.front()->slice_filaments_info) {
+                    std::string display_filament_type;
+                    filament.type        = cfg.get_filament_type(display_filament_type, filament.id);
+                    filament.filament_id = filament_id_opt ? filament_id_opt->get_at(filament.id) : "";
+                    filament.color       = filament_color ? filament_color->get_at(filament.id) : "#FFFFFF";
+                }
+                project_filaments = plate_data_list.front()->slice_filaments_info;
+            } else if (PartPlate* plate = get_partplate_list().get_plate(plate_idx); plate != nullptr) {
+                project_filaments = plate->get_slice_filaments_info();
+            }
+            release_PlateData_list(plate_data_list);
+
+            pDlg = std::make_unique<FlashforgePrintHostSendDialog>(default_output_file, upload_job.printhost->get_post_upload_actions(), groups,
+                                                                   storage_paths, storage_names,
+                                                                   config->get_bool("open_device_tab_post_upload"),
+                                                                   dynamic_cast<Flashforge*>(upload_job.printhost.get()),
+                                                                   project_filaments);
         } else {
             pDlg = std::make_unique<PrintHostSendDialog>(default_output_file, upload_job.printhost->get_post_upload_actions(), groups,
                                                          storage_paths, storage_names, config->get_bool("open_device_tab_post_upload"));
