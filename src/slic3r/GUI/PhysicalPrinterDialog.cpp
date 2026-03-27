@@ -225,11 +225,11 @@ void PhysicalPrinterDialog::build_printhost_settings(ConfigOptionsGroup* m_optgr
                 if (dialog.ShowModal() == wxID_OK) {
                     const int idx = dialog.GetSelection();
                     if (idx >= 0 && idx < static_cast<int>(printers.size())) {
-                        m_optgroup->set_value("print_host", printers[idx].ip_address, true);
-                        m_optgroup->set_value("flashforge_serial_number", printers[idx].serial_number, true);
-                        m_optgroup->get_field("print_host")->field_changed();
-                        if (auto* serial_field = m_optgroup->get_field("flashforge_serial_number"); serial_field != nullptr)
-                            serial_field->field_changed();
+                        m_optgroup->set_value("print_host", from_u8(printers[idx].ip_address), true);
+                        m_optgroup->set_value("flashforge_serial_number", from_u8(printers[idx].serial_number), true);
+                        m_config->opt_string("print_host")                = printers[idx].ip_address;
+                        m_config->opt_string("flashforge_serial_number") = printers[idx].serial_number;
+                        update_printhost_buttons();
                     }
                 }
             } else {

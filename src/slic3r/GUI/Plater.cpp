@@ -15804,10 +15804,24 @@ void Plater::send_gcode_legacy(int plate_idx, Export3mfProgressFn proFn, bool us
             p->partplate_list.store_to_3mf_structure(plate_data_list, true, plate_idx);
             if (!plate_data_list.empty() && plate_data_list.front() != nullptr) {
                 for (auto& filament : plate_data_list.front()->slice_filaments_info) {
+                    if (filament.id < 0)
+                        continue;
+
                     std::string display_filament_type;
-                    filament.type        = cfg.get_filament_type(display_filament_type, filament.id);
-                    filament.filament_id = filament_id_opt ? filament_id_opt->get_at(filament.id) : "";
-                    filament.color       = filament_color ? filament_color->get_at(filament.id) : "#FFFFFF";
+                    try {
+                        filament.type = cfg.get_filament_type(display_filament_type, filament.id);
+                    } catch (...) {
+                    }
+
+                    if (filament.type.empty())
+                        filament.type = display_filament_type;
+                    if (filament.type.empty())
+                        filament.type = "Unknown";
+
+                    filament.filament_id = filament_id_opt ? filament_id_opt->get_at(static_cast<size_t>(filament.id)) : "";
+                    filament.color       = filament_color ? filament_color->get_at(static_cast<size_t>(filament.id)) : "#FFFFFF";
+                    if (filament.color.empty())
+                        filament.color = "#FFFFFF";
                 }
                 project_filaments = plate_data_list.front()->slice_filaments_info;
             } else if (PartPlate* plate = get_partplate_list().get_plate(plate_idx); plate != nullptr) {
