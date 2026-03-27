@@ -12,8 +12,8 @@
 #include <wx/checkbox.h>
 #include <wx/button.h>
 #include <wx/dataview.h>
-#include <wx/choice.h>
 #include <wx/dcbuffer.h>
+#include <wx/graphics.h>
 #include <wx/wrapsizer.h>
 #include <wx/wupdlock.h>
 #include <wx/debug.h>
@@ -34,7 +34,6 @@
 #include "NotificationManager.hpp"
 #include "ExtraRenderers.hpp"
 #include "format.hpp"
-#include "Widgets/ComboBox.hpp"
 
 namespace fs = boost::filesystem;
 using json = nlohmann::json;
@@ -44,107 +43,355 @@ namespace GUI {
 
 namespace {
 
-class FlashforgeAmsMaterialCard : public wxPanel
+class FlashforgeSlotCard : public wxPanel
 {
 public:
-    FlashforgeAmsMaterialCard(wxWindow* parent, const FilamentInfo& filament)
-        : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxSize(FromDIP(65), FromDIP(50)))
-        , m_project_color(wxColour(from_u8(filament.color)))
-        , m_project_name(from_u8(filament.get_display_filament_type()))
+    FlashforgeSlotCard(wxWindow* parent)
+        : wxPanel(parent, wxID_ANY)
     {
-#ifdef __WINDOWS__
         SetDoubleBuffered(true);
-#endif
-        SetMinSize(wxSize(FromDIP(65), FromDIP(50)));
-        SetMaxSize(wxSize(FromDIP(65), FromDIP(50)));
-        SetBackgroundStyle(wxBG_STYLE_PAINT);
-        Bind(wxEVT_PAINT, &FlashforgeAmsMaterialCard::paintEvent, this);
-        wxGetApp().UpdateDarkUI(this);
+        SetMinSize(wxSize(FromDIP(68), FromDIP(92)));
+        SetMaxSize(GetMinSize());
+        Bind(wxEVT_PAINT, &FlashforgeSlotCard::on_paint, this);
+        Bind(wxEVT_ENTER_WINDOW, [this](wxMouseEvent& e) {
+            m_hover = true;
+            SetCursor(wxCursor(m_enabled ? wxCURSOR_HAND : wxCURSOR_NO_ENTRY));
+            Refresh();
+            e.Skip();
+        });
+        Bind(wxEVT_LEAVE_WINDOW, [this](wxMouseEvent& e) {
+            m_hover = false;
+            SetCursor(wxCursor(wxCURSOR_ARROW));
+            Refresh();
+            e.Skip();
+        });
+        Bind(wxEVT_LEFT_DOWN, &FlashforgeSlotCard::on_left_down, this);
     }
 
-    void set_mapping(const wxColour& color, const wxString& material_name, const wxString& slot_name, bool mapped)
+    void set_slot(const Slic3r::FlashforgeMaterialSlot& slot, bool enabled)
     {
-        m_slot_color    = color;
-        m_selected_name = material_name;
-        m_slot_name     = slot_name;
-        m_mapped        = mapped;
+        m_slot_id  = slot.slot_id;
+        m_color    = parse_color(slot.material_color);
+        m_name     = slot.material_name.empty() ? _L("Unknown") : from_u8(slot.material_name);
+        m_empty    = !slot.has_filament;
+        m_enabled  = enabled && !m_empty;
         Refresh();
     }
 
 private:
-    void paintEvent(wxPaintEvent&)
+    static wxColour parse_color(const std::string& raw)
     {
-        wxAutoBufferedPaintDC dc(this);
-        render(dc);
+        wxColour color(from_u8(raw));
+        if (color.IsOk())
+            return color;
+
+        std::string value = raw;
+        boost::trim(value);
+        if (!value.empty() && value.front() != '#')
+            value.insert(value.begin(), '#');
+        color = wxColour(from_u8(value));
+        return color.IsOk() ? color : wxColour("#D0D0D0");
     }
 
-    void render(wxDC& dc)
+    void on_left_down(wxMouseEvent& e)
     {
-        const wxSize size = GetSize();
-        const int split_y = FromDIP(20);
-        const wxColour border = wxGetApp().dark_mode() ? wxColour(107, 107, 107) : wxColour(0xAC, 0xAC, 0xAC);
+        if (!m_enabled)
+            return;
 
-        wxColour top_color = m_project_color.IsOk() ? m_project_color : wxColour("#999999");
-        wxColour bottom_color = m_mapped ? m_slot_color : wxColour("#CECECE");
-        if (!bottom_color.IsOk())
-            bottom_color = wxColour("#CECECE");
+        wxCommandEvent evt(wxEVT_BUTTON, GetId());
+        evt.SetInt(m_slot_id);
+        evt.SetString(m_color.GetAsString(wxC2S_HTML_SYNTAX));
+        wxPostEvent(this, evt);
+        e.Skip();
+    }
 
-        dc.SetBackground(wxBrush(GetBackgroundColour()));
-        dc.Clear();
+    void on_paint(wxPaintEvent&)
+    {
+        wxPaintDC dc(this);
+        std::unique_ptr<wxGraphicsContext> gc(wxGraphicsContext::Create(dc));
+        if (gc == nullptr)
+            return;
 
-        dc.SetPen(*wxTRANSPARENT_PEN);
-        dc.SetBrush(wxBrush(top_color));
-        dc.DrawRoundedRectangle(0, 0, size.x, split_y, FromDIP(5));
-        dc.DrawRectangle(0, split_y / 2, size.x, split_y / 2);
+        const wxSize size           = GetSize();
+        const int    circle_size    = FromDIP(24);
+        const int    outline_width  = (m_hover && m_enabled) ? FromDIP(2) : FromDIP(1);
+        const wxRect body_rect(FromDIP(7), FromDIP(26), size.x - FromDIP(14), size.y - FromDIP(32));
+        const wxColour badge_color  = m_enabled ? wxSystemSettings::GetColour(wxSYS_COLOUR_HIGHLIGHT)
+                                                : wxSystemSettings::GetColour(wxSYS_COLOUR_GRAYTEXT);
+        const wxColour body_border  = m_enabled ? wxSystemSettings::GetColour(wxSYS_COLOUR_BTNSHADOW)
+                                                : wxSystemSettings::GetColour(wxSYS_COLOUR_GRAYTEXT);
+        const wxColour body_text    = wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOWTEXT);
 
-        dc.SetBrush(wxBrush(bottom_color));
-        dc.DrawRoundedRectangle(0, split_y, size.x, size.y - split_y, FromDIP(5));
-        dc.DrawRectangle(0, split_y, size.x, (size.y - split_y) / 2);
+        gc->SetPen(*wxTRANSPARENT_PEN);
+        gc->SetBrush(wxBrush((m_hover && m_enabled) ? badge_color.ChangeLightness(130) : badge_color));
+        gc->DrawEllipse((size.x - circle_size) / 2.0, 0, circle_size, circle_size);
 
-        dc.SetPen(wxPen(border, FromDIP(1)));
-        dc.SetBrush(*wxTRANSPARENT_BRUSH);
-        dc.DrawRoundedRectangle(0, 0, size.x - FromDIP(1), size.y - FromDIP(1), FromDIP(5));
-        dc.DrawLine(FromDIP(1), split_y, size.x - FromDIP(1), split_y);
+        dc.SetFont(::Label::Body_13);
+        dc.SetTextForeground(*wxWHITE);
+        const wxString slot_txt  = wxString::Format("%d", m_slot_id);
+        const wxSize   slot_size = dc.GetTextExtent(slot_txt);
+        dc.DrawText(slot_txt, (size.x - slot_size.x) / 2, (circle_size - slot_size.y) / 2);
 
-        wxString top_text = m_mapped && !m_selected_name.empty() ? m_selected_name : m_project_name;
+        const wxColour bg_color = m_empty ? wxColour("#F6F6F6") : m_color;
+        gc->SetPen(wxPen(body_border, outline_width));
+        gc->SetBrush(wxBrush(bg_color));
+        gc->DrawRoundedRectangle(body_rect.x, body_rect.y, body_rect.width, body_rect.height, FromDIP(8));
+
         dc.SetFont(::Label::Body_12);
-        if (dc.GetTextExtent(top_text).x > size.x - FromDIP(8))
-            dc.SetFont(::Label::Body_10);
-        dc.SetTextForeground(top_color.GetLuminance() < 0.6 ? *wxWHITE : wxColour(0x26, 0x2E, 0x30));
-        wxSize top_extent = dc.GetTextExtent(top_text);
-        dc.DrawText(top_text, wxPoint((size.x - top_extent.x) / 2, (split_y - top_extent.y) / 2));
+        dc.SetTextForeground((!m_empty && bg_color.GetLuminance() < 0.58) ? *wxWHITE : body_text);
 
-        wxString bottom_text = m_mapped ? m_slot_name : _L("Unmapped");
-        dc.SetFont(::Label::Head_12);
-        if (dc.GetTextExtent(bottom_text).x > size.x - FromDIP(10))
+        wxString label = m_empty ? _L("Empty") : m_name;
+        if (dc.GetTextExtent(label).x > body_rect.width - FromDIP(8))
             dc.SetFont(::Label::Body_10);
-        dc.SetTextForeground(wxColour(0x26, 0x2E, 0x30));
-        wxSize bottom_extent = dc.GetTextExtent(bottom_text);
-        dc.DrawText(bottom_text, wxPoint((size.x - bottom_extent.x) / 2, split_y + ((size.y - split_y) - bottom_extent.y) / 2));
+        if (dc.GetTextExtent(label).x > body_rect.width - FromDIP(8)) {
+            while (!label.empty() && dc.GetTextExtent(label + "...").x > body_rect.width - FromDIP(8))
+                label.RemoveLast();
+            label += "...";
+        }
+        const wxSize label_size = dc.GetTextExtent(label);
+        dc.DrawText(label, body_rect.x + (body_rect.width - label_size.x) / 2, body_rect.y + (body_rect.height - label_size.y) / 2);
     }
 
 private:
-    wxColour m_project_color;
-    wxString m_project_name;
-    wxString m_selected_name;
-    wxColour m_slot_color {wxColour("#CECECE")};
-    wxString m_slot_name;
-    bool     m_mapped {false};
+    int      m_slot_id {0};
+    wxColour m_color {*wxWHITE};
+    wxString m_name;
+    bool     m_empty {true};
+    bool     m_enabled {false};
+    bool     m_hover {false};
 };
 
-wxBitmap make_color_swatch_bitmap(wxWindow* parent, const wxColour& color)
+class FlashforgeSlotDialog : public DPIDialog
 {
-    const int dip = parent != nullptr ? parent->FromDIP(12) : 12;
-    const wxSize size(dip, dip);
-    wxBitmap     bitmap(size.x, size.y);
-    wxMemoryDC   dc(bitmap);
-    dc.SetBackground(*wxTRANSPARENT_BRUSH);
-    dc.Clear();
-    dc.SetPen(wxPen(wxColour("#ACACAC"), 1));
-    dc.SetBrush(wxBrush(color.IsOk() ? color : wxColour("#999999")));
-    dc.DrawRoundedRectangle(0, 0, size.x - 1, size.y - 1, parent != nullptr ? parent->FromDIP(2) : 2);
-    dc.SelectObject(wxNullBitmap);
-    return bitmap;
+public:
+    FlashforgeSlotDialog(wxWindow* parent, const wxString& material_name)
+        : DPIDialog(parent, wxID_ANY, _L("Choose a slot for the selected color"), wxDefaultPosition, wxDefaultSize, wxCAPTION | wxCLOSE_BOX)
+        , m_material_name(material_name)
+    {
+        SetFont(wxGetApp().normal_font());
+        SetBackgroundColour(*wxWHITE);
+
+        auto* root = new wxBoxSizer(wxVERTICAL);
+        auto* title = new wxStaticText(this, wxID_ANY, _L("Material in the material station"));
+        title->SetFont(::Label::Head_13);
+        root->Add(title, 0, wxALL | wxALIGN_CENTER_HORIZONTAL, FromDIP(12));
+
+        m_grid = new wxGridSizer(1, 4, FromDIP(10), FromDIP(12));
+        auto* grid_row = new wxBoxSizer(wxHORIZONTAL);
+        grid_row->AddStretchSpacer();
+        grid_row->Add(m_grid, 0);
+        grid_row->AddStretchSpacer();
+        root->Add(grid_row, 0, wxLEFT | wxRIGHT | wxEXPAND, FromDIP(18));
+
+        auto* tip = new wxStaticText(this, wxID_ANY, _L("Only materials of the same type can be selected."));
+        tip->SetForegroundColour(wxSystemSettings::GetColour(wxSYS_COLOUR_GRAYTEXT));
+        root->Add(tip, 0, wxALL | wxALIGN_CENTER_HORIZONTAL, FromDIP(12));
+
+        SetSizer(root);
+        SetMinSize(wxSize(FromDIP(460), FromDIP(240)));
+
+        for (int i = 0; i < 4; ++i) {
+            auto* card = new FlashforgeSlotCard(this);
+            card->Bind(wxEVT_BUTTON, [this](wxCommandEvent& e) {
+                m_selected_slot_id = e.GetInt();
+                m_selected_color   = wxColour(e.GetString());
+                EndModal(wxID_OK);
+            });
+            m_cards.push_back(card);
+            m_grid->Add(card, 0);
+        }
+
+        wxGetApp().UpdateDlgDarkUI(this);
+        Layout();
+        Fit();
+        CenterOnParent();
+        Refresh();
+    }
+
+    void update_slots(const std::vector<Slic3r::FlashforgeMaterialSlot>& slots, const std::set<int>&, int, const std::function<bool(const Slic3r::FlashforgeMaterialSlot&)>& matcher)
+    {
+        for (size_t i = 0; i < m_cards.size(); ++i) {
+            Slic3r::FlashforgeMaterialSlot slot;
+            slot.slot_id = static_cast<int>(i) + 1;
+            if (const auto it = std::find_if(slots.begin(), slots.end(), [&](const Slic3r::FlashforgeMaterialSlot& item) { return item.slot_id == slot.slot_id; }); it != slots.end())
+                slot = *it;
+            const bool enabled = slot.has_filament && matcher(slot);
+            m_cards[i]->set_slot(slot, enabled);
+        }
+        Layout();
+        Fit();
+    }
+
+    bool has_selection() const { return m_selected_slot_id > 0; }
+    int selected_slot_id() const { return m_selected_slot_id; }
+    wxColour selected_color() const { return m_selected_color; }
+
+protected:
+    void on_dpi_changed(const wxRect& suggested_rect) override
+    {
+        Fit();
+        Refresh();
+        if (suggested_rect.IsEmpty())
+            return;
+        SetSize(suggested_rect.GetSize());
+    }
+
+private:
+    wxString                         m_material_name;
+    wxGridSizer*                     m_grid {nullptr};
+    std::vector<FlashforgeSlotCard*> m_cards;
+    int                              m_selected_slot_id {0};
+    wxColour                         m_selected_color;
+};
+
+class FlashforgeMaterialMapWidget : public wxPanel
+{
+public:
+    using SelectFn = std::function<void(FlashforgeMaterialMapWidget*, int)>;
+
+    FlashforgeMaterialMapWidget(wxWindow* parent, int tool_id, const wxColour& color, const wxString& material_name, SelectFn on_select)
+        : wxPanel(parent, wxID_ANY)
+        , m_tool_id(tool_id)
+        , m_color(color)
+        , m_name(material_name.Strip())
+        , m_select_fn(std::move(on_select))
+    {
+        SetDoubleBuffered(true);
+        SetMinSize(wxSize(FromDIP(72), FromDIP(58)));
+        SetMaxSize(GetMinSize());
+        Bind(wxEVT_PAINT, &FlashforgeMaterialMapWidget::on_paint, this);
+        Bind(wxEVT_LEFT_DOWN, &FlashforgeMaterialMapWidget::on_left_down, this);
+
+    }
+
+    int tool_id() const { return m_tool_id; }
+    int selected_slot_id() const { return m_slot_id; }
+    bool is_slot_selected() const { return m_slot_id > 0; }
+    wxString material_name() const { return m_name; }
+
+    void set_enable_mapping(bool enable)
+    {
+        if (m_mapping_enabled == enable)
+            return;
+        m_mapping_enabled = enable;
+        if (!enable)
+            reset_slot();
+        Enable(enable);
+        Refresh();
+    }
+
+    void set_slot_selection(int slot_id, const wxColour& slot_color)
+    {
+        m_slot_id = slot_id;
+        m_slot_color = slot_color;
+        Refresh();
+    }
+
+    void reset_slot()
+    {
+        m_slot_id = 0;
+        m_slot_color = wxColour("#DDDDDD");
+        Refresh();
+    }
+
+    void update_popup_slots(const std::vector<Slic3r::FlashforgeMaterialSlot>& slots, const std::set<int>& used_slots, const std::function<bool(const Slic3r::FlashforgeMaterialSlot&)>& matcher)
+    {
+        m_slots_snapshot = slots;
+        m_used_slots     = used_slots;
+        m_matcher        = matcher;
+    }
+
+private:
+    void on_left_down(wxMouseEvent& e)
+    {
+        if (!m_mapping_enabled)
+            return;
+
+        FlashforgeSlotDialog dlg(this, m_name);
+        dlg.update_slots(m_slots_snapshot, m_used_slots, m_slot_id, m_matcher);
+        m_selected = true;
+        Refresh();
+        if (dlg.ShowModal() == wxID_OK && dlg.has_selection()) {
+            m_slot_id    = dlg.selected_slot_id();
+            m_slot_color = dlg.selected_color();
+            if (m_select_fn)
+                m_select_fn(this, m_slot_id);
+        }
+        m_selected = false;
+        Refresh();
+        e.Skip();
+    }
+
+    void on_paint(wxPaintEvent&)
+    {
+        wxPaintDC dc(this);
+        std::unique_ptr<wxGraphicsContext> gc(wxGraphicsContext::Create(dc));
+        if (gc == nullptr)
+            return;
+
+        const wxSize size = GetSize();
+        const int half_h = size.y / 2;
+        gc->SetPen(*wxTRANSPARENT_PEN);
+        gc->SetBrush(wxBrush(m_color));
+        gc->DrawRoundedRectangle(0, 0, size.x, half_h, FromDIP(3));
+        gc->DrawRectangle(0, half_h - FromDIP(3), size.x, FromDIP(3));
+
+        gc->SetBrush(wxBrush(m_mapping_enabled ? m_slot_color : wxColour("#DDDDDD")));
+        gc->DrawRoundedRectangle(0, half_h, size.x, half_h, FromDIP(3));
+        gc->DrawRectangle(0, half_h, size.x, FromDIP(3));
+
+        if (m_selected) {
+            gc->SetPen(wxPen(wxColour("#00AE42"), FromDIP(2)));
+            gc->SetBrush(*wxTRANSPARENT_BRUSH);
+            gc->DrawRoundedRectangle(0, 0, size.x - FromDIP(1), size.y - FromDIP(1), FromDIP(3));
+        } else if (m_color.GetLuminance() > 0.95 || m_slot_color.GetLuminance() > 0.95) {
+            gc->SetPen(wxPen(wxColour("#ACACAC"), FromDIP(1)));
+            gc->SetBrush(*wxTRANSPARENT_BRUSH);
+            gc->DrawRoundedRectangle(0, 0, size.x - FromDIP(1), size.y - FromDIP(1), FromDIP(3));
+        }
+
+        dc.SetFont(::Label::Body_13);
+        dc.SetTextForeground(m_color.GetLuminance() < 0.6 ? *wxWHITE : wxColour("#404040"));
+        wxString top_text = m_name;
+        if (dc.GetTextExtent(top_text).x > size.x - FromDIP(10)) {
+            dc.SetFont(::Label::Body_10);
+        }
+        wxSize top_size = dc.GetTextExtent(top_text);
+        dc.DrawText(top_text, (size.x - top_size.x) / 2, (half_h - top_size.y) / 2);
+
+        dc.SetFont(::Label::Body_13);
+        dc.SetTextForeground(m_slot_color.GetLuminance() < 0.6 ? *wxWHITE : wxColour("#404040"));
+        const wxString bottom_text = m_slot_id > 0 ? wxString::Format("%d", m_slot_id) : "-";
+        const wxSize bottom_size = dc.GetTextExtent(bottom_text);
+        dc.DrawText(bottom_text, (size.x - bottom_size.x - FromDIP(10)) / 2, half_h + (half_h - bottom_size.y) / 2);
+
+        wxPoint pts[3] = {
+            wxPoint(size.x - FromDIP(18), half_h + half_h / 2 - FromDIP(2)),
+            wxPoint(size.x - FromDIP(10), half_h + half_h / 2 - FromDIP(2)),
+            wxPoint(size.x - FromDIP(14), half_h + half_h / 2 + FromDIP(3))
+        };
+        dc.SetBrush(wxBrush(m_slot_color.GetLuminance() < 0.6 ? *wxWHITE : wxColour("#404040")));
+        dc.SetPen(*wxTRANSPARENT_PEN);
+        dc.DrawPolygon(3, pts);
+    }
+
+private:
+    int                  m_tool_id {-1};
+    wxColour             m_color;
+    wxString             m_name;
+    wxColour             m_slot_color {wxColour("#DDDDDD")};
+    int                  m_slot_id {0};
+    bool                 m_selected {false};
+    bool                 m_mapping_enabled {true};
+    SelectFn             m_select_fn;
+    std::vector<Slic3r::FlashforgeMaterialSlot> m_slots_snapshot;
+    std::set<int>                               m_used_slots;
+    std::function<bool(const Slic3r::FlashforgeMaterialSlot&)> m_matcher;
+};
+
+static FlashforgeMaterialMapWidget* as_ff_map_widget(wxWindow* window)
+{
+    return dynamic_cast<FlashforgeMaterialMapWidget*>(window);
 }
 
 } // namespace
@@ -402,11 +649,12 @@ void FlashforgePrintHostSendDialog::init()
     if (!timelapse.empty())
         m_time_lapse_video = timelapse == "1";
 
-    std::string use_ifs = app_config->get("recent", CONFIG_KEY_IFS);
-    if (!use_ifs.empty())
-        m_use_material_station = use_ifs == "1";
-    else
-        m_use_material_station = true;
+    // Flashforge local printing should default to IFS enabled when the dialog opens.
+    // We still persist the user's final choice on OK, but we don't revive an old
+    // stale "0" from the generic recent section here.
+    m_use_material_station = true;
+    if (!app_config->has("recent", CONFIG_KEY_IFS))
+        const_cast<AppConfig*>(app_config)->set("recent", CONFIG_KEY_IFS, "1");
 
     this->SetMinSize(wxSize(560, 420));
 
@@ -552,31 +800,6 @@ void FlashforgePrintHostSendDialog::init()
         });
     });
 
-    Bind(wxEVT_ICONIZE, [this](wxIconizeEvent& e) {
-        hide_open_dropdowns();
-        e.Skip();
-    });
-
-    Bind(wxEVT_SIZE, [this](wxSizeEvent& e) {
-        hide_open_dropdowns();
-        e.Skip();
-    });
-
-    Bind(wxEVT_MOVE, [this](wxMoveEvent& e) {
-        hide_open_dropdowns();
-        e.Skip();
-    });
-
-    Bind(wxEVT_ACTIVATE, [this](wxActivateEvent& e) {
-        if (!e.GetActive())
-            hide_open_dropdowns();
-        e.Skip();
-    });
-
-    Bind(wxEVT_CLOSE_WINDOW, [this](wxCloseEvent& e) {
-        hide_open_dropdowns();
-        e.Skip();
-    });
 }
 
 void FlashforgePrintHostSendDialog::EndModal(int ret)
@@ -598,14 +821,14 @@ std::map<std::string, std::string> FlashforgePrintHostSendDialog::extendedInfo()
 
     if (m_use_material_station) {
         for (const auto& row : m_mapping_rows) {
-            if (row.choice == nullptr || row.tool_id < 0)
+            auto* card = as_ff_map_widget(row.card);
+            if (card == nullptr || row.tool_id < 0)
                 continue;
 
-            const std::string slot_id_text = slot_choice_value_to_id(row.choice->GetStringSelection());
-            if (slot_id_text.empty())
+            const int slot_id = card->selected_slot_id();
+            if (slot_id <= 0)
                 continue;
 
-            const int slot_id = std::stoi(slot_id_text);
             const auto filament_it = std::find_if(m_project_filaments.begin(), m_project_filaments.end(), [&](const FilamentInfo& item) { return item.id == row.tool_id; });
             const auto slot_it     = std::find_if(m_slots.begin(), m_slots.end(), [&](const FlashforgeMaterialSlot& slot) { return slot.slot_id == slot_id; });
             if (filament_it == m_project_filaments.end() || slot_it == m_slots.end())
@@ -678,34 +901,16 @@ void FlashforgePrintHostSendDialog::rebuild_mapping_rows()
     }
 
     for (const auto& filament : m_project_filaments) {
-        auto* column = new wxBoxSizer(wxVERTICAL);
-        auto* card = new FlashforgeAmsMaterialCard(this, filament);
-        column->Add(card, 0, wxEXPAND | wxBOTTOM, FromDIP(6));
+        auto* card = new FlashforgeMaterialMapWidget(this, filament.id, to_wx_colour(filament.color), from_u8(filament.get_display_filament_type()),
+                                                     [this](FlashforgeMaterialMapWidget* changed_card, int selected_slot_id) {
+                                                         ensure_unique_slot_selection(changed_card, selected_slot_id);
+                                                     });
+        m_mapping_wrap_sizer->Add(card, 0, wxRIGHT | wxBOTTOM, FromDIP(10));
 
-        auto* choice = new ComboBox(this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxSize(FromDIP(140), -1), 0, nullptr, wxCB_READONLY);
-        choice->Append(_L("Unassigned"), make_color_swatch_bitmap(this, wxColour("#CECECE")));
-        for (const auto& slot : m_slots) {
-            const wxString material_name = slot.material_name.empty() ? _L("Unknown") : from_u8(slot.material_name);
-
-            if (!slot.has_filament) {
-                choice->Append(wxString::Format("IFS %d - %s", slot.slot_id, _L("Empty")),
-                               make_color_swatch_bitmap(this, wxColour("#CECECE")),
-                               DD_ITEM_STYLE_DISABLED);
-                continue;
-            }
-
-            const wxString item          = wxString::Format("IFS %d - %s", slot.slot_id, material_name);
-            const int      item_style    = slot_matches_filament(slot, filament) ? 0 : DD_ITEM_STYLE_DISABLED;
-            choice->Append(item, make_color_swatch_bitmap(this, to_wx_colour(slot.material_color)), item_style);
-        }
-        if (choice->GetCount() > 0)
-            choice->SetSelection(0);
-
-        choice->Bind(wxEVT_COMBOBOX, [this, choice](wxCommandEvent&) { ensure_unique_slot_selection(choice); });
-        column->Add(choice, 0, wxEXPAND);
-
-        m_mapping_wrap_sizer->Add(column, 0, wxRIGHT | wxBOTTOM, FromDIP(10));
-        m_mapping_rows.push_back({filament.id, card, choice});
+        MappingRow row;
+        row.tool_id = filament.id;
+        row.card    = card;
+        m_mapping_rows.push_back(row);
     }
 
     auto_assign_mappings();
@@ -713,49 +918,28 @@ void FlashforgePrintHostSendDialog::rebuild_mapping_rows()
 
 void FlashforgePrintHostSendDialog::auto_assign_mappings()
 {
-    std::set<std::string> used_slots;
     for (size_t idx = 0; idx < m_project_filaments.size() && idx < m_mapping_rows.size(); ++idx) {
-        auto&       filament = m_project_filaments[idx];
-        auto*       choice   = m_mapping_rows[idx].choice;
-        if (choice == nullptr)
+        auto& filament = m_project_filaments[idx];
+        auto* card     = as_ff_map_widget(m_mapping_rows[idx].card);
+        if (card == nullptr)
             continue;
 
-        int fallback_selection = wxNOT_FOUND;
-        for (unsigned int i = 1; i < choice->GetCount(); ++i) {
-            const auto slot_id = slot_choice_value_to_id(choice->GetString(i));
-            if (slot_id.empty() || used_slots.count(slot_id) > 0)
+        for (const auto& slot : m_slots) {
+            if (!slot.has_filament || !slot_matches_filament(slot, filament))
                 continue;
-
-            const auto* slot = find_slot_by_id(slot_id);
-            if (slot == nullptr || !slot->has_filament || !slot_matches_filament(*slot, filament))
-                continue;
-
-            if (fallback_selection == wxNOT_FOUND)
-                fallback_selection = static_cast<int>(i);
-        }
-
-        if (choice->GetSelection() <= 0 && fallback_selection != wxNOT_FOUND) {
-            choice->SetSelection(fallback_selection);
-            used_slots.insert(slot_choice_value_to_id(choice->GetStringSelection()));
+            card->set_slot_selection(slot.slot_id, to_wx_colour(slot.material_color));
+            break;
         }
 
         refresh_mapping_card(m_mapping_rows[idx]);
     }
 }
 
-void FlashforgePrintHostSendDialog::ensure_unique_slot_selection(ComboBox* changed_choice)
+void FlashforgePrintHostSendDialog::ensure_unique_slot_selection(wxWindow* changed_card, int selected_slot_id)
 {
-    const auto selected_slot = slot_choice_value_to_id(changed_choice->GetStringSelection());
-    if (selected_slot.empty())
+    auto* changed = as_ff_map_widget(changed_card);
+    if (changed == nullptr || selected_slot_id <= 0)
         return;
-
-    for (const auto& row : m_mapping_rows) {
-        if (row.choice == nullptr || row.choice == changed_choice)
-            continue;
-
-        if (slot_choice_value_to_id(row.choice->GetStringSelection()) == selected_slot)
-            row.choice->SetSelection(0);
-    }
 
     for (auto& row : m_mapping_rows)
         refresh_mapping_card(row);
@@ -763,27 +947,37 @@ void FlashforgePrintHostSendDialog::ensure_unique_slot_selection(ComboBox* chang
 
 void FlashforgePrintHostSendDialog::refresh_mapping_card(MappingRow& row)
 {
-    if (row.card == nullptr || row.choice == nullptr)
-        return;
-
-    auto* card = dynamic_cast<FlashforgeAmsMaterialCard*>(row.card);
+    auto* card = as_ff_map_widget(row.card);
     if (card == nullptr)
         return;
 
-    const std::string slot_id_text = slot_choice_value_to_id(row.choice->GetStringSelection());
-    if (slot_id_text.empty()) {
-        card->set_mapping(wxColour("#CECECE"), wxEmptyString, wxEmptyString, false);
+    std::set<int> used_slots;
+    for (const auto& item : m_mapping_rows) {
+        auto* item_card = as_ff_map_widget(item.card);
+        if (item_card == nullptr || item_card == card)
+            continue;
+        if (item_card->selected_slot_id() > 0)
+            used_slots.insert(item_card->selected_slot_id());
+    }
+
+    const auto* filament = find_filament_by_tool_id(row.tool_id);
+    card->set_enable_mapping(m_use_material_station);
+    card->update_popup_slots(m_slots, used_slots, [this, filament](const FlashforgeMaterialSlot& slot) {
+        return filament != nullptr && slot_matches_filament(slot, *filament);
+    });
+
+    if (card->selected_slot_id() <= 0) {
+        card->reset_slot();
         return;
     }
 
-    const auto slot_it = std::find_if(m_slots.begin(), m_slots.end(), [&](const FlashforgeMaterialSlot& slot) { return std::to_string(slot.slot_id) == slot_id_text; });
-    if (slot_it == m_slots.end()) {
-        card->set_mapping(wxColour("#CECECE"), wxEmptyString, wxEmptyString, false);
+    const auto* slot = find_slot_by_id(std::to_string(card->selected_slot_id()));
+    if (slot == nullptr) {
+        card->reset_slot();
         return;
     }
 
-    const wxString material_name = slot_it->material_name.empty() ? _L("Unknown") : from_u8(slot_it->material_name);
-    card->set_mapping(to_wx_colour(slot_it->material_color), material_name, wxString::Format("%d", slot_it->slot_id), true);
+    card->set_slot_selection(slot->slot_id, to_wx_colour(slot->material_color));
 }
 
 void FlashforgePrintHostSendDialog::sync_mapping_section_visibility()
@@ -792,21 +986,13 @@ void FlashforgePrintHostSendDialog::sync_mapping_section_visibility()
         return;
 
     m_mapping_section_sizer->ShowItems(m_use_material_station);
-    if (wxSizer* sizer = GetSizer(); sizer != nullptr)
+    if (wxSizer* sizer = GetSizer(); sizer != nullptr) {
         sizer->Layout();
-    Layout();
-}
-
-void FlashforgePrintHostSendDialog::hide_open_dropdowns()
-{
-    for (auto& row : m_mapping_rows) {
-        if (row.choice == nullptr)
-            continue;
-
-        auto& dropdown = row.choice->GetDropDown();
-        if (dropdown.IsShown())
-            dropdown.Hide();
+        sizer->Fit(this);
+        SetMinSize(GetBestSize());
     }
+    Layout();
+    Fit();
 }
 
 const Slic3r::FlashforgeMaterialSlot* FlashforgePrintHostSendDialog::find_slot_by_id(const std::string& slot_id_text) const
@@ -842,13 +1028,13 @@ bool FlashforgePrintHostSendDialog::validate_before_close()
         return true;
 
     for (const auto& row : m_mapping_rows) {
-        if (row.choice == nullptr || row.choice->GetSelection() <= 0) {
+        auto* card = as_ff_map_widget(row.card);
+        if (card == nullptr || !card->is_slot_selected()) {
             show_error(this, _L("Each project material must be assigned to an IFS slot before printing."));
             return false;
         }
 
-        const std::string slot_id_text = slot_choice_value_to_id(row.choice->GetStringSelection());
-        const auto*       slot         = find_slot_by_id(slot_id_text);
+        const auto*       slot         = find_slot_by_id(std::to_string(card->selected_slot_id()));
         const auto*       filament     = find_filament_by_tool_id(row.tool_id);
         if (slot == nullptr || filament == nullptr || !slot->has_filament) {
             show_error(this, _L("Each project material must be assigned to a loaded IFS slot before printing."));
@@ -862,25 +1048,6 @@ bool FlashforgePrintHostSendDialog::validate_before_close()
     }
 
     return true;
-}
-
-std::string FlashforgePrintHostSendDialog::slot_choice_value_to_id(const wxString& value) const
-{
-    if (value.empty() || value == _L("Unassigned"))
-        return {};
-
-    const wxString prefix = "IFS ";
-    if (!value.StartsWith(prefix))
-        return {};
-
-    wxString rest = value.Mid(prefix.Length());
-    wxString id;
-    for (wxUniChar c : rest) {
-        if (!wxIsdigit(c))
-            break;
-        id.Append(c);
-    }
-    return into_u8(id);
 }
 
 std::string FlashforgePrintHostSendDialog::normalize_material(const std::string& material) const

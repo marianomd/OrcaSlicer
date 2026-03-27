@@ -18,7 +18,6 @@
 #include "libslic3r/ProjectTask.hpp"
 class wxButton;
 class wxTextCtrl;
-class wxChoice;
 class wxComboBox;
 class ComboBox;
 class wxDataViewListCtrl;
@@ -208,23 +207,20 @@ public:
 private:
     struct MappingRow {
         int       tool_id {-1};
-        wxPanel*   card {nullptr};
-        ComboBox* choice {nullptr};
+        wxWindow* card {nullptr};
     };
 
     void load_slots();
     bool ensure_slots_loaded(bool force_reload = false);
     void rebuild_mapping_rows();
     void auto_assign_mappings();
-    void ensure_unique_slot_selection(ComboBox* changed_choice);
+    void ensure_unique_slot_selection(wxWindow* changed_card, int selected_slot_id);
     void refresh_mapping_card(MappingRow& row);
     void sync_mapping_section_visibility();
-    void hide_open_dropdowns();
     const Slic3r::FlashforgeMaterialSlot* find_slot_by_id(const std::string& slot_id_text) const;
     const FilamentInfo* find_filament_by_tool_id(int tool_id) const;
     bool slot_matches_filament(const Slic3r::FlashforgeMaterialSlot& slot, const FilamentInfo& filament) const;
     bool validate_before_close();
-    std::string slot_choice_value_to_id(const wxString& value) const;
     std::string normalize_material(const std::string& material) const;
     wxColour to_wx_colour(const std::string& color) const;
 
