@@ -15779,9 +15779,25 @@ void Plater::send_gcode_legacy(int plate_idx, Export3mfProgressFn proFn, bool us
                                                                storage_paths, storage_names,
                                                                config->get_bool("open_device_tab_post_upload"));
         } else if (host_type == htFlashforge) {
+            auto* flashforge_host = dynamic_cast<Flashforge*>(upload_job.printhost.get());
+            if (flashforge_host == nullptr) {
+                show_error(this, _L("Flashforge host is not available."), false);
+                return;
+            }
+
+            std::vector<FlashforgeMaterialSlot> slots;
+            {
+                wxBusyCursor wait;
+                wxString     msg;
+                if (!flashforge_host->fetch_material_slots(slots, msg)) {
+                    show_error(this, msg.empty() ? _L("Unable to log in to the Flashforge printer.") : msg, false);
+                    return;
+                }
+            }
+
             std::vector<FilamentInfo> project_filaments;
             PlateDataPtrs               plate_data_list;
-            const DynamicPrintConfig&   cfg                 = wxGetApp().preset_bundle->full_config();
+            DynamicPrintConfig          cfg                 = wxGetApp().preset_bundle->full_config();
             const auto*                 filament_color      = dynamic_cast<const ConfigOptionStrings*>(cfg.option("filament_colour"));
             const auto*                 filament_id_opt     = dynamic_cast<const ConfigOptionStrings*>(cfg.option("filament_ids"));
 
@@ -15802,7 +15818,8 @@ void Plater::send_gcode_legacy(int plate_idx, Export3mfProgressFn proFn, bool us
             pDlg = std::make_unique<FlashforgePrintHostSendDialog>(default_output_file, upload_job.printhost->get_post_upload_actions(), groups,
                                                                    storage_paths, storage_names,
                                                                    config->get_bool("open_device_tab_post_upload"),
-                                                                   dynamic_cast<Flashforge*>(upload_job.printhost.get()),
+                                                                   flashforge_host,
+                                                                   std::move(slots),
                                                                    project_filaments);
         } else {
             pDlg = std::make_unique<PrintHostSendDialog>(default_output_file, upload_job.printhost->get_post_upload_actions(), groups,

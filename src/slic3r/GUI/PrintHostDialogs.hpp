@@ -20,6 +20,7 @@ class wxButton;
 class wxTextCtrl;
 class wxChoice;
 class wxComboBox;
+class ComboBox;
 class wxDataViewListCtrl;
 class wxFlexGridSizer;
 class wxStaticText;
@@ -197,6 +198,7 @@ public:
                                   const wxArrayString&            storage_names,
                                   bool                            switch_to_device_tab,
                                   const Slic3r::Flashforge*       host,
+                                  std::vector<Slic3r::FlashforgeMaterialSlot> slots,
                                   const std::vector<FilamentInfo>& project_filaments);
 
     virtual void init() override;
@@ -207,15 +209,20 @@ private:
     struct MappingRow {
         int       tool_id {-1};
         wxPanel*   card {nullptr};
-        wxStaticText* mapped_label {nullptr};
-        wxChoice* choice {nullptr};
+        ComboBox* choice {nullptr};
     };
 
     void load_slots();
+    bool ensure_slots_loaded(bool force_reload = false);
     void rebuild_mapping_rows();
     void auto_assign_mappings();
-    void ensure_unique_slot_selection(wxChoice* changed_choice);
+    void ensure_unique_slot_selection(ComboBox* changed_choice);
     void refresh_mapping_card(MappingRow& row);
+    void sync_mapping_section_visibility();
+    void hide_open_dropdowns();
+    const Slic3r::FlashforgeMaterialSlot* find_slot_by_id(const std::string& slot_id_text) const;
+    const FilamentInfo* find_filament_by_tool_id(int tool_id) const;
+    bool slot_matches_filament(const Slic3r::FlashforgeMaterialSlot& slot, const FilamentInfo& filament) const;
     bool validate_before_close();
     std::string slot_choice_value_to_id(const wxString& value) const;
     std::string normalize_material(const std::string& material) const;
@@ -236,6 +243,7 @@ private:
     bool                             m_leveling_before_print {true};
     bool                             m_time_lapse_video {false};
     bool                             m_use_material_station {false};
+    bool                             m_slots_loaded {false};
 
     const char* CONFIG_KEY_LEVELING  = "flashforge_leveling_before_print";
     const char* CONFIG_KEY_TIMELAPSE = "flashforge_timelapse_video";
