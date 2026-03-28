@@ -15723,6 +15723,18 @@ void Plater::send_gcode_legacy(int plate_idx, Export3mfProgressFn proFn, bool us
     if (upload_job.empty())
         return;
 
+    const auto  host_type_opt = physical_printer_config->option<ConfigOptionEnum<PrintHostType>>("host_type");
+    const auto  host_type     = host_type_opt != nullptr ? host_type_opt->value : htElegooLink;
+    const auto* ff_serial_opt = physical_printer_config->option<ConfigOptionString>("flashforge_serial_number");
+    const auto* ff_code_opt   = physical_printer_config->option<ConfigOptionString>("printhost_apikey");
+    const bool  flashforge_local_api =
+        host_type == htFlashforge &&
+        ff_serial_opt != nullptr && !ff_serial_opt->value.empty() &&
+        ff_code_opt != nullptr && !ff_code_opt->value.empty();
+
+    if (flashforge_local_api)
+        use_3mf = true;
+
     upload_job.upload_data.use_3mf = use_3mf;
 
     // Obtain default output path
@@ -15769,8 +15781,6 @@ void Plater::send_gcode_legacy(int plate_idx, Export3mfProgressFn proFn, bool us
 
     {
         auto        preset_bundle = wxGetApp().preset_bundle;
-        const auto  opt           = physical_printer_config->option<ConfigOptionEnum<PrintHostType>>("host_type");
-        const auto  host_type     = opt != nullptr ? opt->value : htElegooLink;
         auto        config        = get_app_config();
 
         std::unique_ptr<PrintHostSendDialog> pDlg;
