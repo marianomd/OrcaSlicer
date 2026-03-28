@@ -63,9 +63,9 @@ private:
     Slic3r::Utils::SerialMessage tempStatusCommand       = {"~M105\r\n", Slic3r::Utils::Command};
     Slic3r::Utils::SerialMessage printStatusCommand      = {"~M27\r\n", Slic3r::Utils::Command};
     Slic3r::Utils::SerialMessage saveFileCommand         = {"~M29\r\n",Slic3r::Utils::Command};
-    bool upload_ad5x(PrintHostUpload upload_data, ProgressFn progress_fn, ErrorFn error_fn) const;
-    bool test_ad5x(wxString& msg) const;
-    bool request_ad5x_json(const std::string& path, const std::string& body, std::string& response_body, wxString& error_msg) const;
+    bool upload_local_api(PrintHostUpload upload_data, ProgressFn progress_fn, ErrorFn error_fn) const;
+    bool test_local_api(wxString& msg) const;
+    bool request_local_api_json(const std::string& path, const std::string& body, std::string& response_body, wxString& error_msg) const;
     std::string make_http_url(const std::string& path) const;
     std::string extract_host_name() const;
     int  get_err_code_from_body(const std::string &body) const;

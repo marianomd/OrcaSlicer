@@ -634,6 +634,7 @@ FlashforgePrintHostSendDialog::FlashforgePrintHostSendDialog(const fs::path&    
     , m_project_filaments(project_filaments)
 {
     m_slots_loaded = !m_slots.empty();
+    m_supports_material_station = m_slots_loaded;
 }
 
 void FlashforgePrintHostSendDialog::init()
@@ -649,11 +650,10 @@ void FlashforgePrintHostSendDialog::init()
     if (!timelapse.empty())
         m_time_lapse_video = timelapse == "1";
 
-    // Flashforge local printing should default to IFS enabled when the dialog opens.
-    // We still persist the user's final choice on OK, but we don't revive an old
-    // stale "0" from the generic recent section here.
-    m_use_material_station = true;
-    if (!app_config->has("recent", CONFIG_KEY_IFS))
+    // Flashforge local printing should default to IFS enabled when supported.
+    // We don't revive an old stale "0" here.
+    m_use_material_station = m_supports_material_station;
+    if (m_supports_material_station && !app_config->has("recent", CONFIG_KEY_IFS))
         const_cast<AppConfig*>(app_config)->set("recent", CONFIG_KEY_IFS, "1");
 
     this->SetMinSize(wxSize(560, 420));
@@ -734,6 +734,9 @@ void FlashforgePrintHostSendDialog::init()
                             sync_mapping_section_visibility();
                         }, &m_checkbox_ifs);
 
+    if (m_checkbox_ifs != nullptr && !m_supports_material_station)
+        m_checkbox_ifs->Enable(false);
+
     m_status_text = new wxStaticText(this, wxID_ANY, wxEmptyString);
     m_status_text->SetFont(::Label::Body_12);
     m_flashforge_options_sizer->Add(m_status_text, 0, wxTOP | wxBOTTOM, FromDIP(4));
@@ -745,8 +748,10 @@ void FlashforgePrintHostSendDialog::init()
 
     content_sizer->Add(m_flashforge_options_sizer, 0, wxEXPAND);
 
-    if (m_slots_loaded)
+    if (m_supports_material_station)
         m_status_text->SetLabel(wxString::Format(_L("Detected %d IFS slots on printer."), static_cast<int>(m_slots.size())));
+    else
+        m_status_text->SetLabel(_L("This printer does not report a material station."));
 
     rebuild_mapping_rows();
     sync_mapping_section_visibility();
@@ -858,6 +863,7 @@ void FlashforgePrintHostSendDialog::load_slots()
 {
     m_slots.clear();
     m_slots_loaded = false;
+    m_supports_material_station = false;
 
     if (m_host == nullptr) {
         m_status_text->SetLabel(_L("Flashforge host is not available."));
@@ -870,14 +876,20 @@ void FlashforgePrintHostSendDialog::load_slots()
         return;
     }
 
-    m_status_text->SetLabel(wxString::Format(_L("Detected %d IFS slots on printer."), static_cast<int>(m_slots.size())));
-    m_slots_loaded = true;
+    m_supports_material_station = !m_slots.empty();
+    m_slots_loaded = m_supports_material_station;
+    m_use_material_station = m_supports_material_station;
+
+    if (m_supports_material_station)
+        m_status_text->SetLabel(wxString::Format(_L("Detected %d IFS slots on printer."), static_cast<int>(m_slots.size())));
+    else
+        m_status_text->SetLabel(_L("This printer does not report a material station."));
 }
 
 bool FlashforgePrintHostSendDialog::ensure_slots_loaded(bool force_reload)
 {
-    if (!force_reload && m_slots_loaded)
-        return true;
+    if (!force_reload && (m_slots_loaded || !m_supports_material_station))
+        return m_slots_loaded;
 
     if (m_status_text != nullptr)
         m_status_text->SetLabel(_L("Loading IFS slots from printer..."));
@@ -985,7 +997,7 @@ void FlashforgePrintHostSendDialog::sync_mapping_section_visibility()
     if (m_mapping_section_sizer == nullptr)
         return;
 
-    m_mapping_section_sizer->ShowItems(m_use_material_station);
+    m_mapping_section_sizer->ShowItems(m_use_material_station && m_supports_material_station);
     if (wxSizer* sizer = GetSizer(); sizer != nullptr) {
         sizer->Layout();
         sizer->Fit(this);

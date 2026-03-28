@@ -239,6 +239,7 @@ private:
     bool                             m_leveling_before_print {true};
     bool                             m_time_lapse_video {false};
     bool                             m_use_material_station {false};
+    bool                             m_supports_material_station {false};
     bool                             m_slots_loaded {false};
 
     const char* CONFIG_KEY_LEVELING  = "flashforge_leveling_before_print";

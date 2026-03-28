@@ -244,7 +244,7 @@ bool Flashforge::discover_printers(std::vector<FlashforgeDiscoveredPrinter>& pri
 bool Flashforge::test(wxString& msg) const
 {
     if (!m_serial_number.empty() && !m_check_code.empty())
-        return test_ad5x(msg);
+        return test_local_api(msg);
 
     BOOST_LOG_TRIVIAL(debug) << boost::format("[Flashforge Serial] testing connection");
     // Utils::TCPConsole console(m_host, m_console_port);
@@ -263,14 +263,14 @@ bool Flashforge::test(wxString& msg) const
 wxString Flashforge::get_test_ok_msg() const
 {
     if (!m_serial_number.empty() && !m_check_code.empty())
-        return _(L("Connected to Flashforge AD5X local API successfully."));
+        return _(L("Connected to Flashforge local API successfully."));
     return _(L("Serial connection to Flashforge is working correctly."));
 }
 
 wxString Flashforge::get_test_failed_msg(wxString& msg) const
 {
     const std::string prefix = (!m_serial_number.empty() && !m_check_code.empty()) ?
-        _utf8(L("Could not connect to Flashforge AD5X local API")) :
+        _utf8(L("Could not connect to Flashforge local API")) :
         _utf8(L("Could not connect to Flashforge via serial"));
     return GUI::from_u8((boost::format("%s: %s") % prefix % std::string(msg.ToUTF8())).str());
 }
@@ -324,7 +324,7 @@ bool Flashforge::start_print(wxString& msg, const std::string& filename) const
 bool Flashforge::upload(PrintHostUpload upload_data, ProgressFn progress_fn, ErrorFn error_fn, InfoFn info_fn) const
 {
     if (!m_serial_number.empty() && !m_check_code.empty())
-        return upload_ad5x(std::move(upload_data), std::move(progress_fn), std::move(error_fn));
+        return upload_local_api(std::move(upload_data), std::move(progress_fn), std::move(error_fn));
 
     bool res = true;
     wxString errormsg;
@@ -403,13 +403,10 @@ bool Flashforge::upload(PrintHostUpload upload_data, ProgressFn progress_fn, Err
     return res;
 }
 
-bool Flashforge::test_ad5x(wxString& msg) const
+bool Flashforge::test_local_api(wxString& msg) const
 {
-    std::vector<FlashforgeMaterialSlot> slots;
-    if (!fetch_material_slots(slots, msg))
-        return false;
-
-    return true;
+    std::string body;
+    return request_local_api_json("detail", json{{"serialNumber", m_serial_number}, {"checkCode", m_check_code}}.dump(), body, msg);
 }
 
 bool Flashforge::fetch_material_slots(std::vector<FlashforgeMaterialSlot>& slots, wxString& msg) const
@@ -417,12 +414,12 @@ bool Flashforge::fetch_material_slots(std::vector<FlashforgeMaterialSlot>& slots
     slots.clear();
 
     if (m_serial_number.empty() || m_check_code.empty()) {
-        msg = _(L("Flashforge AD5X requires both serial number and access code."));
+        msg = _(L("Flashforge local API requires both serial number and access code."));
         return false;
     }
 
     std::string body;
-    if (!request_ad5x_json("detail", json{{"serialNumber", m_serial_number}, {"checkCode", m_check_code}}.dump(), body, msg))
+    if (!request_local_api_json("detail", json{{"serialNumber", m_serial_number}, {"checkCode", m_check_code}}.dump(), body, msg))
         return false;
 
     const auto parsed = json::parse(body, nullptr, false, true);
@@ -445,15 +442,10 @@ bool Flashforge::fetch_material_slots(std::vector<FlashforgeMaterialSlot>& slots
         slots.emplace_back(std::move(info));
     }
 
-    if (slots.empty()) {
-        msg = _(L("No IFS slots were reported by the printer."));
-        return false;
-    }
-
     return true;
 }
 
-bool Flashforge::upload_ad5x(PrintHostUpload upload_data, ProgressFn progress_fn, ErrorFn error_fn) const
+bool Flashforge::upload_local_api(PrintHostUpload upload_data, ProgressFn progress_fn, ErrorFn error_fn) const
 {
     bool        res            = true;
     std::string material_map_b64;
@@ -508,7 +500,7 @@ bool Flashforge::upload_ad5x(PrintHostUpload upload_data, ProgressFn progress_fn
     return res;
 }
 
-bool Flashforge::request_ad5x_json(const std::string& path, const std::string& body, std::string& response_body, wxString& error_msg) const
+bool Flashforge::request_local_api_json(const std::string& path, const std::string& body, std::string& response_body, wxString& error_msg) const
 {
     bool ok = true;
     auto http = Http::post(make_http_url(path));
