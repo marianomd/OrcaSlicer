@@ -1,12 +1,33 @@
 @REM OrcaSlicer build script for Windows with VS auto-detect
 @echo off
+setlocal ENABLEDELAYEDEXPANSION
 set WP=%CD%
 set _START_TIME=%TIME%
 
 @REM Check for Ninja Multi-Config option (-x)
 set USE_NINJA=0
+set JOBS=
+set NEXT_IS_JOBS=0
 for %%a in (%*) do (
     if "%%a"=="-x" set USE_NINJA=1
+    if "!NEXT_IS_JOBS!"=="1" (
+        set JOBS=%%a
+        set NEXT_IS_JOBS=0
+    ) else (
+        if "%%a"=="-j" set NEXT_IS_JOBS=1
+    )
+)
+
+set BUILD_PARALLEL_NINJA=
+set BUILD_PARALLEL_MSBUILD=
+if defined JOBS (
+    set BUILD_PARALLEL_NINJA=--parallel %JOBS%
+    set BUILD_PARALLEL_MSBUILD=-m:%JOBS%
+    set CMAKE_BUILD_PARALLEL_LEVEL=%JOBS%
+    set ORCA_MSBUILD_PARALLEL=/m:%JOBS%
+) else (
+    set BUILD_PARALLEL_MSBUILD=-m
+    set ORCA_MSBUILD_PARALLEL=/m
 )
 
 if "%USE_NINJA%"=="1" (
@@ -96,6 +117,7 @@ if "%debug%"=="ON" (
     )
 )
 echo build type set to %build_type%
+if defined JOBS echo parallel jobs set to %JOBS%
 
 setlocal DISABLEDELAYEDEXPANSION 
 cd deps
@@ -114,10 +136,10 @@ REM Set minimum CMake policy to avoid <3.5 errors
 set CMAKE_POLICY_VERSION_MINIMUM=3.5
 if "%USE_NINJA%"=="1" (
     cmake ../ -G %CMAKE_GENERATOR% -DCMAKE_BUILD_TYPE=%build_type%
-    cmake --build . --config %build_type% --target deps
+    cmake --build . --config %build_type% --target deps %BUILD_PARALLEL_NINJA%
 ) else (
     cmake ../ -G %CMAKE_GENERATOR% -A x64 -DCMAKE_BUILD_TYPE=%build_type%
-    cmake --build . --config %build_type% --target deps -- -m
+    cmake --build . --config %build_type% --target deps -- %BUILD_PARALLEL_MSBUILD%
 )
 @echo off
 
@@ -133,10 +155,10 @@ echo on
 set CMAKE_POLICY_VERSION_MINIMUM=3.5
 if "%USE_NINJA%"=="1" (
     cmake .. -G %CMAKE_GENERATOR% -DORCA_TOOLS=ON %SIG_FLAG% -DCMAKE_BUILD_TYPE=%build_type%
-    cmake --build . --config %build_type% --target ALL_BUILD
+    cmake --build . --config %build_type% --target ALL_BUILD %BUILD_PARALLEL_NINJA%
 ) else (
     cmake .. -G %CMAKE_GENERATOR% -A x64 -DORCA_TOOLS=ON %SIG_FLAG% -DCMAKE_BUILD_TYPE=%build_type%
-    cmake --build . --config %build_type% --target ALL_BUILD -- -m
+    cmake --build . --config %build_type% --target ALL_BUILD -- %BUILD_PARALLEL_MSBUILD%
 )
 @echo off
 cd ..
