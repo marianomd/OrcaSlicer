@@ -116,12 +116,78 @@ std::string safe_config_string(DynamicPrintConfig* config, const char* key)
     return {};
 }
 
+bool try_parse_json_int(const json& value, int& out)
+{
+    try {
+        if (value.is_number_integer() || value.is_number_unsigned()) {
+            out = value.get<int>();
+            return true;
+        }
+
+        if (value.is_boolean()) {
+            out = value.get<bool>() ? 1 : 0;
+            return true;
+        }
+
+        if (value.is_string()) {
+            std::string text = value.get<std::string>();
+            boost::trim(text);
+            if (text.empty())
+                return false;
+
+            size_t pos = 0;
+            const long parsed = std::stol(text, &pos, 10);
+            if (pos == text.size()) {
+                out = static_cast<int>(parsed);
+                return true;
+            }
+        }
+    } catch (...) {
+    }
+
+    return false;
+}
+
+bool validate_local_api_response(const std::string& response_body, wxString& error_msg)
+{
+    const auto parsed = json::parse(response_body, nullptr, false, true);
+    if (parsed.is_discarded() || !parsed.is_object()) {
+        error_msg = _(L("Flashforge returned an invalid JSON response."));
+        return false;
+    }
+
+    int  result_code = 0;
+    bool has_code    = false;
+
+    if (parsed.contains("code"))
+        has_code = try_parse_json_int(parsed["code"], result_code);
+    if (!has_code && parsed.contains("err"))
+        has_code = try_parse_json_int(parsed["err"], result_code);
+
+    if (has_code && result_code != 0) {
+        std::string message;
+        if (parsed.contains("message") && parsed["message"].is_string())
+            message = parsed["message"].get<std::string>();
+        else if (parsed.contains("msg") && parsed["msg"].is_string())
+            message = parsed["msg"].get<std::string>();
+
+        if (message.empty())
+            message = "Request failed";
+
+        error_msg = GUI::from_u8((boost::format("Flashforge local API error %1%: %2%") % result_code % message).str());
+        return false;
+    }
+
+    return true;
+}
+
 } // namespace
 
 Flashforge::Flashforge(DynamicPrintConfig* config)
     : m_host()
     , m_serial_number()
     , m_check_code()
+    , m_supports_material_station(false)
     , m_console_port("8899")
     , m_gcFlavor(gcfMarlinLegacy)
     , m_bufferSize(4096) // 4K buffer size
@@ -129,6 +195,8 @@ Flashforge::Flashforge(DynamicPrintConfig* config)
     m_host          = safe_config_string(config, "print_host");
     m_serial_number = safe_config_string(config, "flashforge_serial_number");
     m_check_code    = safe_config_string(config, "printhost_apikey");
+    const auto printer_model = safe_config_string(config, "printer_model");
+    m_supports_material_station = boost::icontains(printer_model, "AD5X");
 
     if (config != nullptr) {
         if (const auto* gcode_flavor = config->option<ConfigOptionEnum<GCodeFlavor>>("gcode_flavor"); gcode_flavor != nullptr)
@@ -409,7 +477,7 @@ bool Flashforge::test_local_api(wxString& msg) const
     return request_local_api_json("detail", json{{"serialNumber", m_serial_number}, {"checkCode", m_check_code}}.dump(), body, msg);
 }
 
-bool Flashforge::fetch_material_slots(std::vector<FlashforgeMaterialSlot>& slots, wxString& msg) const
+bool Flashforge::fetch_material_slots(std::vector<FlashforgeMaterialSlot>& slots, bool* supports_material_station, wxString& msg) const
 {
     slots.clear();
 
@@ -431,7 +499,28 @@ bool Flashforge::fetch_material_slots(std::vector<FlashforgeMaterialSlot>& slots
     const auto& detail = parsed.contains("detail") ? parsed["detail"] : parsed;
     const auto& station = detail.contains("matlStationInfo") ? detail["matlStationInfo"] :
                           detail.contains("MatlStationInfo") ? detail["MatlStationInfo"] : json();
-    const auto& slot_infos = station.contains("slotInfos") ? station["slotInfos"] : json::array();
+    const auto& slot_infos = station.contains("slotInfos") ? station["slotInfos"] :
+                             station.contains("SlotInfos") ? station["SlotInfos"] : json::array();
+
+    bool reports_material_station = false;
+
+    int has_material_station_flag = 0;
+    if (detail.contains("hasMatlStation") && try_parse_json_int(detail["hasMatlStation"], has_material_station_flag))
+        reports_material_station = has_material_station_flag != 0;
+    else if (detail.contains("HasMatlStation") && try_parse_json_int(detail["HasMatlStation"], has_material_station_flag))
+        reports_material_station = has_material_station_flag != 0;
+
+    int slot_count = 0;
+    if (station.contains("slotCnt") && try_parse_json_int(station["slotCnt"], slot_count))
+        reports_material_station = reports_material_station || slot_count > 0;
+    else if (station.contains("SlotCnt") && try_parse_json_int(station["SlotCnt"], slot_count))
+        reports_material_station = reports_material_station || slot_count > 0;
+
+    if (slot_infos.is_array() && !slot_infos.empty())
+        reports_material_station = true;
+
+    if (supports_material_station != nullptr)
+        *supports_material_station = reports_material_station || m_supports_material_station;
 
     for (const auto& slot : slot_infos) {
         FlashforgeMaterialSlot info;
@@ -483,7 +572,14 @@ bool Flashforge::upload_local_api(PrintHostUpload upload_data, ProgressFn progre
         .header("materialMappings", material_map_b64)
         .form_add_file("gcodeFile", upload_data.source_path.string(), filename)
         .on_complete([&](std::string body, unsigned status) {
-            BOOST_LOG_TRIVIAL(info) << boost::format("[Flashforge HTTP] upload complete: HTTP %1% body: %2%") % status % body;
+            wxString msg;
+            if (!validate_local_api_response(body, msg)) {
+                BOOST_LOG_TRIVIAL(error) << boost::format("[Flashforge HTTP] upload rejected by printer: HTTP %1% body: `%2%`") % status % body;
+                error_fn(msg);
+                res = false;
+            } else {
+                BOOST_LOG_TRIVIAL(info) << boost::format("[Flashforge HTTP] upload complete: HTTP %1% body: %2%") % status % body;
+            }
         })
         .on_error([&](std::string body, std::string error, unsigned status) {
             BOOST_LOG_TRIVIAL(error) << boost::format("[Flashforge HTTP] upload failed: %1%, HTTP %2%, body: `%3%`") % error % status % body;
@@ -508,6 +604,8 @@ bool Flashforge::request_local_api_json(const std::string& path, const std::stri
         .set_post_body(body)
         .on_complete([&](std::string body_text, unsigned) {
             response_body = std::move(body_text);
+            if (!validate_local_api_response(response_body, error_msg))
+                ok = false;
         })
         .on_error([&](std::string body_text, std::string error, unsigned status) {
             response_body = std::move(body_text);

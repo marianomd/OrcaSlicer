@@ -197,6 +197,7 @@ public:
                                   const wxArrayString&            storage_names,
                                   bool                            switch_to_device_tab,
                                   const Slic3r::Flashforge*       host,
+                                  bool                            supports_material_station,
                                   std::vector<Slic3r::FlashforgeMaterialSlot> slots,
                                   const std::vector<FilamentInfo>& project_filaments);
 

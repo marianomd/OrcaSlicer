@@ -626,6 +626,7 @@ FlashforgePrintHostSendDialog::FlashforgePrintHostSendDialog(const fs::path&    
                                                              const wxArrayString&        storage_names,
                                                              bool                        switch_to_device_tab,
                                                              const Slic3r::Flashforge*   host,
+                                                             bool                        supports_material_station,
                                                              std::vector<Slic3r::FlashforgeMaterialSlot> slots,
                                                              const std::vector<FilamentInfo>& project_filaments)
     : PrintHostSendDialog(path, post_actions, groups, storage_paths, storage_names, switch_to_device_tab)
@@ -633,8 +634,8 @@ FlashforgePrintHostSendDialog::FlashforgePrintHostSendDialog(const fs::path&    
     , m_slots(std::move(slots))
     , m_project_filaments(project_filaments)
 {
+    m_supports_material_station = supports_material_station;
     m_slots_loaded = !m_slots.empty();
-    m_supports_material_station = m_slots_loaded;
 }
 
 void FlashforgePrintHostSendDialog::init()
@@ -871,13 +872,14 @@ void FlashforgePrintHostSendDialog::load_slots()
     }
 
     wxString msg;
-    if (!m_host->fetch_material_slots(m_slots, msg)) {
+    bool     supports_material_station = false;
+    if (!m_host->fetch_material_slots(m_slots, &supports_material_station, msg)) {
         m_status_text->SetLabel(msg.empty() ? _L("Unable to read IFS slots from printer.") : msg);
         return;
     }
 
-    m_supports_material_station = !m_slots.empty();
-    m_slots_loaded = m_supports_material_station;
+    m_supports_material_station = supports_material_station;
+    m_slots_loaded = !m_slots.empty();
     m_use_material_station = m_supports_material_station;
 
     if (m_supports_material_station)

@@ -15798,10 +15798,11 @@ void Plater::send_gcode_legacy(int plate_idx, Export3mfProgressFn proFn, bool us
             }
 
             std::vector<FlashforgeMaterialSlot> slots;
+            bool                                supports_material_station = false;
             {
                 wxBusyCursor wait;
                 wxString     msg;
-                if (!flashforge_host->fetch_material_slots(slots, msg)) {
+                if (!flashforge_host->fetch_material_slots(slots, &supports_material_station, msg)) {
                     show_error(this, msg.empty() ? _L("Unable to log in to the Flashforge printer.") : msg, false);
                     return;
                 }
@@ -15845,6 +15846,7 @@ void Plater::send_gcode_legacy(int plate_idx, Export3mfProgressFn proFn, bool us
                                                                    storage_paths, storage_names,
                                                                    config->get_bool("open_device_tab_post_upload"),
                                                                    flashforge_host,
+                                                                   supports_material_station,
                                                                    std::move(slots),
                                                                    project_filaments);
         } else {

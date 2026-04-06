@@ -44,13 +44,14 @@ public:
     bool                       can_test() const override { return true; }
     PrintHostPostUploadActions get_post_upload_actions() const override { return PrintHostPostUploadAction::StartPrint; }
     std::string                get_host() const override { return m_host; }
-    bool                       fetch_material_slots(std::vector<FlashforgeMaterialSlot>& slots, wxString& msg) const;
+    bool                       fetch_material_slots(std::vector<FlashforgeMaterialSlot>& slots, bool* supports_material_station, wxString& msg) const;
     static bool                discover_printers(std::vector<FlashforgeDiscoveredPrinter>& printers, wxString& msg, int timeout_ms = 10000, int idle_timeout_ms = 1500, int max_retries = 3);
 
 private:
     std::string m_host;
     std::string m_serial_number;
     std::string m_check_code;
+    bool        m_supports_material_station {false};
     std::string m_console_port;
     const int m_bufferSize;
     GCodeFlavor m_gcFlavor;
