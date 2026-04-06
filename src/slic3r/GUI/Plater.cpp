@@ -15813,10 +15813,8 @@ void Plater::send_gcode_legacy(int plate_idx, Export3mfProgressFn proFn, bool us
             DynamicPrintConfig          cfg                 = wxGetApp().preset_bundle->full_config();
             const auto*                 filament_color      = dynamic_cast<const ConfigOptionStrings*>(cfg.option("filament_colour"));
             const auto*                 filament_id_opt     = dynamic_cast<const ConfigOptionStrings*>(cfg.option("filament_ids"));
-
-            p->partplate_list.store_to_3mf_structure(plate_data_list, true, plate_idx);
-            if (!plate_data_list.empty() && plate_data_list.front() != nullptr) {
-                for (auto& filament : plate_data_list.front()->slice_filaments_info) {
+            auto enrich_project_filaments = [&](std::vector<FilamentInfo>& filaments) {
+                for (auto& filament : filaments) {
                     if (filament.id < 0)
                         continue;
 
@@ -15836,10 +15834,23 @@ void Plater::send_gcode_legacy(int plate_idx, Export3mfProgressFn proFn, bool us
                     if (filament.color.empty())
                         filament.color = "#FFFFFF";
                 }
-                project_filaments = plate_data_list.front()->slice_filaments_info;
-            } else if (PartPlate* plate = get_partplate_list().get_plate(plate_idx); plate != nullptr) {
-                project_filaments = plate->get_slice_filaments_info();
+            };
+
+            p->partplate_list.store_to_3mf_structure(plate_data_list, true, plate_idx);
+            PlateData* selected_plate_data = (plate_idx >= 0 && plate_idx < static_cast<int>(plate_data_list.size())) ? plate_data_list[plate_idx] : nullptr;
+            if (selected_plate_data == nullptr && !plate_data_list.empty())
+                selected_plate_data = plate_data_list.front();
+
+            if (selected_plate_data != nullptr)
+                project_filaments = selected_plate_data->slice_filaments_info;
+
+            if (project_filaments.empty()) {
+                if (PartPlate* plate = get_partplate_list().get_plate(plate_idx); plate != nullptr)
+                    project_filaments = plate->get_slice_filaments_info();
             }
+
+            if (!project_filaments.empty())
+                enrich_project_filaments(project_filaments);
             release_PlateData_list(plate_data_list);
 
             pDlg = std::make_unique<FlashforgePrintHostSendDialog>(default_output_file, upload_job.printhost->get_post_upload_actions(), groups,
