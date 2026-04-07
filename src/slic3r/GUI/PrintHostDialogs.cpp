@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <iomanip>
+#include <limits>
 
 #include <wx/frame.h>
 #include <wx/progdlg.h>
@@ -42,6 +43,19 @@ namespace Slic3r {
 namespace GUI {
 
 namespace {
+
+wxColour contrasting_text_color(const wxColour& background)
+{
+    return background.GetLuminance() < 0.60 ? *wxWHITE : wxColour("#303030");
+}
+
+long long color_distance_sq(const wxColour& lhs, const wxColour& rhs)
+{
+    const long long dr = static_cast<long long>(lhs.Red()) - static_cast<long long>(rhs.Red());
+    const long long dg = static_cast<long long>(lhs.Green()) - static_cast<long long>(rhs.Green());
+    const long long db = static_cast<long long>(lhs.Blue()) - static_cast<long long>(rhs.Blue());
+    return dr * dr + dg * dg + db * db;
+}
 
 class FlashforgeSlotCard : public wxPanel
 {
@@ -120,7 +134,6 @@ private:
                                                 : wxSystemSettings::GetColour(wxSYS_COLOUR_GRAYTEXT);
         const wxColour body_border  = m_enabled ? wxSystemSettings::GetColour(wxSYS_COLOUR_BTNSHADOW)
                                                 : wxSystemSettings::GetColour(wxSYS_COLOUR_GRAYTEXT);
-        const wxColour body_text    = wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOWTEXT);
 
         gc->SetPen(*wxTRANSPARENT_PEN);
         gc->SetBrush(wxBrush((m_hover && m_enabled) ? badge_color.ChangeLightness(130) : badge_color));
@@ -138,7 +151,7 @@ private:
         gc->DrawRoundedRectangle(body_rect.x, body_rect.y, body_rect.width, body_rect.height, FromDIP(8));
 
         dc.SetFont(::Label::Body_12);
-        dc.SetTextForeground((!m_empty && bg_color.GetLuminance() < 0.58) ? *wxWHITE : body_text);
+        dc.SetTextForeground(contrasting_text_color(bg_color));
 
         wxString label = m_empty ? _L("Empty") : m_name;
         if (dc.GetTextExtent(label).x > body_rect.width - FromDIP(8))
@@ -358,7 +371,7 @@ private:
         }
 
         dc.SetFont(::Label::Body_13);
-        dc.SetTextForeground(m_color.GetLuminance() < 0.6 ? *wxWHITE : wxColour("#404040"));
+        dc.SetTextForeground(contrasting_text_color(m_color));
         wxString top_text = m_name;
         if (dc.GetTextExtent(top_text).x > size.x - FromDIP(10)) {
             dc.SetFont(::Label::Body_10);
@@ -367,7 +380,7 @@ private:
         dc.DrawText(top_text, (size.x - top_size.x) / 2, (half_h - top_size.y) / 2);
 
         dc.SetFont(::Label::Body_13);
-        dc.SetTextForeground(m_slot_color.GetLuminance() < 0.6 ? *wxWHITE : wxColour("#404040"));
+        dc.SetTextForeground(contrasting_text_color(m_slot_color));
         const wxString bottom_text = m_slot_id > 0 ? wxString::Format("%d", m_slot_id) : "-";
         const wxSize bottom_size = dc.GetTextExtent(bottom_text);
         dc.DrawText(bottom_text, (size.x - bottom_size.x - FromDIP(10)) / 2, half_h + (half_h - bottom_size.y) / 2);
@@ -377,7 +390,7 @@ private:
             wxPoint(size.x - FromDIP(10), half_h + half_h / 2 - FromDIP(2)),
             wxPoint(size.x - FromDIP(14), half_h + half_h / 2 + FromDIP(3))
         };
-        dc.SetBrush(wxBrush(m_slot_color.GetLuminance() < 0.6 ? *wxWHITE : wxColour("#404040")));
+        dc.SetBrush(wxBrush(contrasting_text_color(m_slot_color)));
         dc.SetPen(*wxTRANSPARENT_PEN);
         dc.DrawPolygon(3, pts);
     }
@@ -945,12 +958,25 @@ void FlashforgePrintHostSendDialog::auto_assign_mappings()
         if (card == nullptr)
             continue;
 
+        const wxColour filament_color = to_wx_colour(filament.color);
+        const Slic3r::FlashforgeMaterialSlot* best_slot = nullptr;
+        long long best_distance = std::numeric_limits<long long>::max();
+
         for (const auto& slot : m_slots) {
             if (!slot.has_filament || !slot_matches_filament(slot, filament))
                 continue;
-            card->set_slot_selection(slot.slot_id, to_wx_colour(slot.material_color));
-            break;
+
+            const long long distance = color_distance_sq(filament_color, to_wx_colour(slot.material_color));
+            if (best_slot == nullptr || distance < best_distance) {
+                best_slot = &slot;
+                best_distance = distance;
+            }
         }
+
+        if (best_slot != nullptr)
+            card->set_slot_selection(best_slot->slot_id, to_wx_colour(best_slot->material_color));
+        else
+            card->reset_slot();
 
         refresh_mapping_card(m_mapping_rows[idx]);
     }
