@@ -257,8 +257,10 @@ public:
         , m_select_fn(std::move(on_select))
     {
         SetDoubleBuffered(true);
-        SetMinSize(wxSize(FromDIP(72), FromDIP(58)));
-        SetMaxSize(GetMinSize());
+        const wxSize size(FromDIP(72), FromDIP(58));
+        SetSize(size);
+        SetMinSize(size);
+        SetMaxSize(size);
         Bind(wxEVT_PAINT, &FlashforgeMaterialMapWidget::on_paint, this);
         Bind(wxEVT_LEFT_DOWN, &FlashforgeMaterialMapWidget::on_left_down, this);
 
@@ -299,6 +301,11 @@ public:
         m_slots_snapshot = slots;
         m_used_slots     = used_slots;
         m_matcher        = matcher;
+    }
+
+    wxSize DoGetBestSize() const override
+    {
+        return wxSize(FromDIP(72), FromDIP(58));
     }
 
 private:
@@ -744,7 +751,7 @@ void FlashforgePrintHostSendDialog::init()
 
     m_mapping_section_sizer = new wxBoxSizer(wxVERTICAL);
     m_mapping_wrap_sizer    = new wxWrapSizer(wxHORIZONTAL, wxWRAPSIZER_DEFAULT_FLAGS);
-    m_mapping_section_sizer->Add(m_mapping_wrap_sizer, 0, wxEXPAND | wxTOP, FromDIP(10));
+    m_mapping_section_sizer->Add(m_mapping_wrap_sizer, 0, wxTOP | wxALIGN_LEFT, FromDIP(10));
     m_flashforge_options_sizer->Add(m_mapping_section_sizer, 0, wxEXPAND);
 
     content_sizer->Add(m_flashforge_options_sizer, 0, wxEXPAND);
@@ -919,7 +926,7 @@ void FlashforgePrintHostSendDialog::rebuild_mapping_rows()
                                                      [this](FlashforgeMaterialMapWidget* changed_card, int selected_slot_id) {
                                                          ensure_unique_slot_selection(changed_card, selected_slot_id);
                                                      });
-        m_mapping_wrap_sizer->Add(card, 0, wxRIGHT | wxBOTTOM, FromDIP(10));
+        m_mapping_wrap_sizer->Add(card, 0, wxRIGHT | wxBOTTOM | wxFIXED_MINSIZE, FromDIP(10));
 
         MappingRow row;
         row.tool_id = filament.id;
