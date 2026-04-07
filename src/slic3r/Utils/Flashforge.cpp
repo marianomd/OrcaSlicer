@@ -547,7 +547,7 @@ bool Flashforge::fetch_material_slots(std::vector<FlashforgeMaterialSlot>& slots
     if (!request_local_api_json("detail", json{{"serialNumber", m_serial_number}, {"checkCode", m_check_code}}.dump(), body, msg))
         return false;
 
-    BOOST_LOG_TRIVIAL(info) << boost::format("[Flashforge DIAG] /detail response body: %1%") % trim_for_log(body);
+    BOOST_LOG_TRIVIAL(warning) << boost::format("[Flashforge DIAG] /detail response body: %1%") % trim_for_log(body);
 
     const auto parsed = json::parse(body, nullptr, false, true);
     if (parsed.is_discarded()) {
@@ -581,7 +581,7 @@ bool Flashforge::fetch_material_slots(std::vector<FlashforgeMaterialSlot>& slots
     if (supports_material_station != nullptr)
         *supports_material_station = reports_material_station || m_supports_material_station;
 
-    BOOST_LOG_TRIVIAL(info)
+    BOOST_LOG_TRIVIAL(warning)
         << boost::format("[Flashforge DIAG] /detail model=%1% hasMatlStation=%2% slotCnt=%3% slotInfos=%4% supportsMaterialStation=%5% (fallbackFromModel=%6%)")
                % json_field_to_log_string(detail, "name")
                % (detail.contains("hasMatlStation") ? json_field_to_log_string(detail, "hasMatlStation") :
@@ -601,7 +601,7 @@ bool Flashforge::fetch_material_slots(std::vector<FlashforgeMaterialSlot>& slots
         slots.emplace_back(std::move(info));
 
         const auto& parsed_slot = slots.back();
-        BOOST_LOG_TRIVIAL(info)
+        BOOST_LOG_TRIVIAL(warning)
             << boost::format("[Flashforge DIAG] /detail slot slotId=%1% hasFilament=%2% materialName='%3%' materialColor='%4%'")
                    % parsed_slot.slot_id
                    % (parsed_slot.has_filament ? "true" : "false")
@@ -637,7 +637,7 @@ bool Flashforge::upload_local_api(PrintHostUpload upload_data, ProgressFn progre
     }
 
     auto http = Http::post(url);
-    BOOST_LOG_TRIVIAL(info)
+    BOOST_LOG_TRIVIAL(warning)
         << boost::format("[Flashforge DIAG] uploadGcode request serial=%1% checkCode=%2% file=%3% fileSize=%4% printNow=%5% leveling=%6% useMatlStation=%7% gcodeToolCnt=%8% materialMappingsBytes=%9%")
                % trim_for_log(m_serial_number, 16)
                % mask_secret(m_check_code)
@@ -661,14 +661,14 @@ bool Flashforge::upload_local_api(PrintHostUpload upload_data, ProgressFn progre
         .header("materialMappings", material_map_b64)
         .form_add_file("gcodeFile", upload_data.source_path.string(), filename)
         .on_complete([&](std::string body, unsigned status) {
-            BOOST_LOG_TRIVIAL(info) << boost::format("[Flashforge DIAG] uploadGcode response: HTTP %1% body: %2%") % status % trim_for_log(body);
+            BOOST_LOG_TRIVIAL(warning) << boost::format("[Flashforge DIAG] uploadGcode response: HTTP %1% body: %2%") % status % trim_for_log(body);
             wxString msg;
             if (!validate_local_api_response(body, msg)) {
                 BOOST_LOG_TRIVIAL(error) << boost::format("[Flashforge HTTP] upload rejected by printer: HTTP %1% body: `%2%`") % status % body;
                 error_fn(msg);
                 res = false;
             } else {
-                BOOST_LOG_TRIVIAL(info) << boost::format("[Flashforge HTTP] upload complete: HTTP %1% body: %2%") % status % body;
+                BOOST_LOG_TRIVIAL(warning) << boost::format("[Flashforge HTTP] upload complete: HTTP %1% body: %2%") % status % body;
             }
         })
         .on_error([&](std::string body, std::string error, unsigned status) {
@@ -689,13 +689,13 @@ bool Flashforge::upload_local_api(PrintHostUpload upload_data, ProgressFn progre
 bool Flashforge::request_local_api_json(const std::string& path, const std::string& body, std::string& response_body, wxString& error_msg) const
 {
     bool ok = true;
-    BOOST_LOG_TRIVIAL(info) << boost::format("[Flashforge DIAG] POST /%1% request body: %2%") % path % sanitize_json_for_log(body);
+    BOOST_LOG_TRIVIAL(warning) << boost::format("[Flashforge DIAG] POST /%1% request body: %2%") % path % sanitize_json_for_log(body);
     auto http = Http::post(make_http_url(path));
     http.header("Content-Type", "application/json")
         .set_post_body(body)
         .on_complete([&](std::string body_text, unsigned) {
             response_body = std::move(body_text);
-            BOOST_LOG_TRIVIAL(info) << boost::format("[Flashforge DIAG] POST /%1% response body: %2%") % path % trim_for_log(response_body);
+            BOOST_LOG_TRIVIAL(warning) << boost::format("[Flashforge DIAG] POST /%1% response body: %2%") % path % trim_for_log(response_body);
             if (!validate_local_api_response(response_body, error_msg))
                 ok = false;
         })

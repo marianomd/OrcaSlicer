@@ -15734,10 +15734,42 @@ void Plater::send_gcode_legacy(int plate_idx, Export3mfProgressFn proFn, bool us
         ff_serial_opt != nullptr && !ff_serial_opt->value.empty() &&
         ff_code_opt != nullptr && !ff_code_opt->value.empty();
 
+    auto host_type_name = [](PrintHostType type) -> const char* {
+        switch (type) {
+            case htPrusaLink: return "PrusaLink";
+            case htPrusaConnect: return "PrusaConnect";
+            case htOctoPrint: return "OctoPrint";
+            case htDuet: return "Duet";
+            case htFlashAir: return "FlashAir";
+            case htAstroBox: return "AstroBox";
+            case htRepetier: return "Repetier";
+            case htMKS: return "MKS";
+            case htESP3D: return "ESP3D";
+            case htCrealityPrint: return "CrealityPrint";
+            case htObico: return "Obico";
+            case htFlashforge: return "Flashforge";
+            case htSimplyPrint: return "SimplyPrint";
+            case htElegooLink: return "ElegooLink";
+            default: return "Unknown";
+        }
+    };
+
+    BOOST_LOG_TRIVIAL(warning)
+        << boost::format("[Flashforge ROUTE] send_gcode_legacy plate_idx=%1% use_3mf_in=%2% host_type=%3% host_name=%4% host=%5% ff_serial_present=%6% ff_code_present=%7% flashforge_local_api=%8%")
+               % plate_idx
+               % use_3mf
+               % host_type_name(host_type)
+               % (upload_job.printhost ? upload_job.printhost->get_name() : "<null>")
+               % (upload_job.printhost ? upload_job.printhost->get_host() : std::string("<null>"))
+               % (ff_serial_opt != nullptr && !ff_serial_opt->value.empty())
+               % (ff_code_opt != nullptr && !ff_code_opt->value.empty())
+               % flashforge_local_api;
+
     if (flashforge_local_api)
         use_3mf = true;
 
     upload_job.upload_data.use_3mf = use_3mf;
+    BOOST_LOG_TRIVIAL(warning) << boost::format("[Flashforge ROUTE] effective use_3mf=%1%") % use_3mf;
 
     // Obtain default output path
     fs::path default_output_file;
@@ -15787,12 +15819,15 @@ void Plater::send_gcode_legacy(int plate_idx, Export3mfProgressFn proFn, bool us
 
         std::unique_ptr<PrintHostSendDialog> pDlg;
         if (host_type == htElegooLink) {
+            BOOST_LOG_TRIVIAL(warning) << "[Flashforge ROUTE] creating ElegooPrintHostSendDialog";
             pDlg = std::make_unique<ElegooPrintHostSendDialog>(default_output_file, upload_job.printhost->get_post_upload_actions(), groups,
                                                                storage_paths, storage_names,
                                                                config->get_bool("open_device_tab_post_upload"));
         } else if (host_type == htFlashforge) {
+            BOOST_LOG_TRIVIAL(warning) << "[Flashforge ROUTE] entering Flashforge branch";
             auto* flashforge_host = dynamic_cast<Flashforge*>(upload_job.printhost.get());
             if (flashforge_host == nullptr) {
+                BOOST_LOG_TRIVIAL(error) << "[Flashforge ROUTE] dynamic_cast<Flashforge*> failed";
                 show_error(this, _L("Flashforge host is not available."), false);
                 return;
             }
@@ -15802,10 +15837,18 @@ void Plater::send_gcode_legacy(int plate_idx, Export3mfProgressFn proFn, bool us
             {
                 wxBusyCursor wait;
                 wxString     msg;
+                BOOST_LOG_TRIVIAL(warning) << "[Flashforge ROUTE] calling fetch_material_slots()";
                 if (!flashforge_host->fetch_material_slots(slots, &supports_material_station, msg)) {
+                    BOOST_LOG_TRIVIAL(error)
+                        << boost::format("[Flashforge ROUTE] fetch_material_slots failed msg='%1%'")
+                               % msg.ToUTF8().data();
                     show_error(this, msg.empty() ? _L("Unable to log in to the Flashforge printer.") : msg, false);
                     return;
                 }
+                BOOST_LOG_TRIVIAL(warning)
+                    << boost::format("[Flashforge ROUTE] fetch_material_slots ok supportsMaterialStation=%1% slotCount=%2%")
+                           % supports_material_station
+                           % slots.size();
             }
 
             std::vector<FilamentInfo> project_filaments;
@@ -15854,6 +15897,20 @@ void Plater::send_gcode_legacy(int plate_idx, Export3mfProgressFn proFn, bool us
                 enrich_project_filaments(project_filaments);
             release_PlateData_list(plate_data_list);
 
+            BOOST_LOG_TRIVIAL(warning)
+                << boost::format("[Flashforge ROUTE] resolved_plate_idx=%1% project_filaments=%2%")
+                       % resolved_plate_idx
+                       % project_filaments.size();
+            for (const auto& filament : project_filaments) {
+                BOOST_LOG_TRIVIAL(warning)
+                    << boost::format("[Flashforge ROUTE] filament toolId=%1% type='%2%' displayType='%3%' color='%4%' filamentId='%5%'")
+                           % filament.id
+                           % filament.type
+                           % filament.get_display_filament_type()
+                           % filament.color
+                           % filament.filament_id;
+            }
+
             pDlg = std::make_unique<FlashforgePrintHostSendDialog>(default_output_file, upload_job.printhost->get_post_upload_actions(), groups,
                                                                    storage_paths, storage_names,
                                                                    config->get_bool("open_device_tab_post_upload"),
@@ -15861,13 +15918,20 @@ void Plater::send_gcode_legacy(int plate_idx, Export3mfProgressFn proFn, bool us
                                                                    supports_material_station,
                                                                    std::move(slots),
                                                                    project_filaments);
+            BOOST_LOG_TRIVIAL(warning) << "[Flashforge ROUTE] created FlashforgePrintHostSendDialog";
         } else {
+            BOOST_LOG_TRIVIAL(warning)
+                << boost::format("[Flashforge ROUTE] using generic PrintHostSendDialog for host_type=%1% host_name=%2%")
+                       % host_type_name(host_type)
+                       % (upload_job.printhost ? upload_job.printhost->get_name() : "<null>");
             pDlg = std::make_unique<PrintHostSendDialog>(default_output_file, upload_job.printhost->get_post_upload_actions(), groups,
                                                          storage_paths, storage_names, config->get_bool("open_device_tab_post_upload"));
         }
 
         pDlg->init();
-        if (pDlg->ShowModal() != wxID_OK) {
+        const int dialog_result = pDlg->ShowModal();
+        BOOST_LOG_TRIVIAL(warning) << boost::format("[Flashforge ROUTE] dialog result=%1%") % dialog_result;
+        if (dialog_result != wxID_OK) {
             return;
         }
 
@@ -15879,6 +15943,11 @@ void Plater::send_gcode_legacy(int plate_idx, Export3mfProgressFn proFn, bool us
         upload_job.upload_data.group       = pDlg->group();
         upload_job.upload_data.storage     = pDlg->storage();
         upload_job.upload_data.extended_info = pDlg->extendedInfo();
+        BOOST_LOG_TRIVIAL(warning)
+            << boost::format("[Flashforge ROUTE] upload path='%1%' post_action=%2% extended_info_keys=%3%")
+                   % upload_job.upload_data.upload_path.string()
+                   % static_cast<int>(upload_job.upload_data.post_action)
+                   % upload_job.upload_data.extended_info.size();
     }
 
     // Show "Is printer clean" dialog for PrusaConnect - Upload and print.
