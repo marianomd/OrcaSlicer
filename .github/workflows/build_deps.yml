@@ -141,4 +141,5 @@ jobs:
       cache-path: ${{ inputs.cache-path }}
       os: ${{ inputs.os }}
       arch: ${{ inputs.arch }}
+      checkout_ref: ${{ inputs.checkout_ref }}
     secrets: inherit

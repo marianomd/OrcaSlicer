@@ -40,6 +40,10 @@ jobs:
           lfs: 'false'
           ref: ${{ inputs.checkout_ref || github.sha }}
 
+      - name: Resolve build commit
+        shell: bash
+        run: echo "build_sha=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
       - name: load cached deps
         if: ${{ !(runner.os == 'macOS' && inputs.macos-combine-only) }}
         uses: actions/cache@v5
@@ -125,20 +129,20 @@ jobs:
         if: runner.os == 'macOS' && !inputs.macos-combine-only
         working-directory: ${{ github.workspace }}
         run: |
-          tar -czvf OrcaSlicer_Mac_bundle_${{ inputs.arch }}_${{ github.sha }}.tar.gz -C build/${{ inputs.arch }} OrcaSlicer
+          tar -czvf OrcaSlicer_Mac_bundle_${{ inputs.arch }}_${{ env.build_sha }}.tar.gz -C build/${{ inputs.arch }} OrcaSlicer
 
       - name: Upload macOS app bundle ${{ inputs.arch }}
         if: runner.os == 'macOS' && !inputs.macos-combine-only
         uses: actions/upload-artifact@v7
         with:
-          name: OrcaSlicer_Mac_bundle_${{ inputs.arch }}_${{ github.sha }}
-          path: ${{ github.workspace }}/OrcaSlicer_Mac_bundle_${{ inputs.arch }}_${{ github.sha }}.tar.gz
+          name: OrcaSlicer_Mac_bundle_${{ inputs.arch }}_${{ env.build_sha }}
+          path: ${{ github.workspace }}/OrcaSlicer_Mac_bundle_${{ inputs.arch }}_${{ env.build_sha }}.tar.gz
 
       - name: Download macOS app bundles
         if: runner.os == 'macOS' && inputs.macos-combine-only
         uses: actions/download-artifact@v8
         with:
-          pattern: OrcaSlicer_Mac_bundle_*_${{ github.sha }}
+          pattern: OrcaSlicer_Mac_bundle_*_${{ env.build_sha }}
           path: ${{ github.workspace }}/mac_bundles
 
       - name: Extract macOS app bundles
@@ -146,8 +150,8 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: |
           mkdir -p build/arm64 build/x86_64
-          arm_bundle=$(find "${{ github.workspace }}/mac_bundles/OrcaSlicer_Mac_bundle_arm64_${{ github.sha }}" -name '*.tar.gz' -print -quit)
-          x86_bundle=$(find "${{ github.workspace }}/mac_bundles/OrcaSlicer_Mac_bundle_x86_64_${{ github.sha }}" -name '*.tar.gz' -print -quit)
+          arm_bundle=$(find "${{ github.workspace }}/mac_bundles/OrcaSlicer_Mac_bundle_arm64_${{ env.build_sha }}" -name '*.tar.gz' -print -quit)
+          x86_bundle=$(find "${{ github.workspace }}/mac_bundles/OrcaSlicer_Mac_bundle_x86_64_${{ env.build_sha }}" -name '*.tar.gz' -print -quit)
           tar -xzvf "$arm_bundle" -C "${{ github.workspace }}/build/arm64"
           tar -xzvf "$x86_bundle" -C "${{ github.workspace }}/build/x86_64"
 
@@ -162,8 +166,8 @@ jobs:
         uses: geekyeggo/delete-artifact@v5
         with:
           name: |
-            OrcaSlicer_Mac_bundle_arm64_${{ github.sha }}
-            OrcaSlicer_Mac_bundle_x86_64_${{ github.sha }}
+            OrcaSlicer_Mac_bundle_arm64_${{ env.build_sha }}
+            OrcaSlicer_Mac_bundle_x86_64_${{ env.build_sha }}
 
  # Thanks to RaySajuuk, it's working now
       - name: Sign app and notary
@@ -396,7 +400,7 @@ jobs:
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ github.sha }}-tests
+          name: ${{ env.build_sha }}-tests
           overwrite: true
           path: build_tests.tar
           retention-days: 5
