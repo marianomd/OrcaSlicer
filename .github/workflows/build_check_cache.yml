@@ -9,6 +9,9 @@ on:
       arch:
         required: false
         type: string
+      checkout_ref:
+        required: false
+        type: string
       build-deps-only:
         required: false
         type: boolean
@@ -29,6 +32,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           lfs: 'false'
+          ref: ${{ inputs.checkout_ref || github.sha }}
         
       - name: set outputs
         id: set_outputs
@@ -59,6 +63,7 @@ jobs:
       valid-cache: ${{ needs.check_cache.outputs.valid-cache == 'true' }}
       os: ${{ inputs.os }}
       arch: ${{ inputs.arch }}
+      checkout_ref: ${{ inputs.checkout_ref }}
       build-deps-only: ${{ inputs.build-deps-only }}
       force-build: ${{ inputs.force-build }}
     secrets: inherit

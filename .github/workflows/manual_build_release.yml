@@ -1,0 +1,172 @@
+name: Manual Build And Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag, or commit SHA to build
+        required: true
+        default: feature/flashforge-ad5x-lan-ifs
+        type: string
+      prerelease:
+        description: Mark the GitHub release as a pre-release
+        required: true
+        default: true
+        type: boolean
+      release_tag:
+        description: Optional release tag override
+        required: false
+        default: ""
+        type: string
+      release_name:
+        description: Optional release name override
+        required: false
+        default: ""
+        type: string
+
+concurrency:
+  group: manual-build-release-${{ inputs.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    name: Prepare Release Metadata
+    runs-on: ubuntu-24.04
+    outputs:
+      checkout_ref: ${{ steps.meta.outputs.checkout_ref }}
+      release_tag: ${{ steps.meta.outputs.release_tag }}
+      release_name: ${{ steps.meta.outputs.release_name }}
+      short_sha: ${{ steps.meta.outputs.short_sha }}
+    steps:
+      - name: Checkout target ref
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 1
+          lfs: false
+
+      - name: Compute metadata
+        id: meta
+        shell: bash
+        run: |
+          checkout_ref="$(git rev-parse HEAD)"
+          short_sha="$(git rev-parse --short=10 HEAD)"
+          version="$(grep 'set(SoftFever_VERSION' version.inc | cut -d '"' -f2)"
+          safe_ref="${{ inputs.ref }}"
+          safe_ref="${safe_ref//\//-}"
+          safe_ref="${safe_ref// /-}"
+          safe_ref="$(printf '%s' "$safe_ref" | tr -cd '[:alnum:]._-' )"
+
+          release_tag="${{ inputs.release_tag }}"
+          if [ -z "$release_tag" ]; then
+            release_tag="manual-build-${safe_ref}-${short_sha}"
+          fi
+
+          release_name="${{ inputs.release_name }}"
+          if [ -z "$release_name" ]; then
+            release_name="Manual build ${safe_ref} ${version} (${short_sha})"
+          fi
+
+          echo "checkout_ref=$checkout_ref" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$short_sha" >> "$GITHUB_OUTPUT"
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+          echo "release_name=$release_name" >> "$GITHUB_OUTPUT"
+
+  build_linux:
+    needs: prepare
+    uses: ./.github/workflows/build_check_cache.yml
+    with:
+      os: ubuntu-24.04
+      checkout_ref: ${{ needs.prepare.outputs.checkout_ref }}
+    secrets: inherit
+
+  build_windows:
+    needs: prepare
+    uses: ./.github/workflows/build_check_cache.yml
+    with:
+      os: windows-latest
+      checkout_ref: ${{ needs.prepare.outputs.checkout_ref }}
+    secrets: inherit
+
+  build_macos_arch:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - arm64
+          - x86_64
+    uses: ./.github/workflows/build_check_cache.yml
+    with:
+      os: macos-14
+      arch: ${{ matrix.arch }}
+      checkout_ref: ${{ needs.prepare.outputs.checkout_ref }}
+    secrets: inherit
+
+  build_macos_universal:
+    name: Build macOS Universal
+    needs:
+      - prepare
+      - build_macos_arch
+    uses: ./.github/workflows/build_orca.yml
+    with:
+      os: macos-14
+      arch: universal
+      checkout_ref: ${{ needs.prepare.outputs.checkout_ref }}
+      macos-combine-only: true
+    secrets: inherit
+
+  create_release:
+    name: Create GitHub Release
+    runs-on: ubuntu-24.04
+    needs:
+      - prepare
+      - build_linux
+      - build_windows
+      - build_macos_universal
+    steps:
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: OrcaSlicer_Windows_*
+          path: release-assets/windows
+          merge-multiple: true
+
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: OrcaSlicer_Linux_ubuntu_*
+          path: release-assets/linux
+          merge-multiple: true
+
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: OrcaSlicer_Mac_universal_*
+          path: release-assets/macos
+          merge-multiple: true
+
+      - name: Show collected assets
+        shell: bash
+        run: find release-assets -maxdepth 2 -type f | sort
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.release_tag }}
+          target_commitish: ${{ needs.prepare.outputs.checkout_ref }}
+          name: ${{ needs.prepare.outputs.release_name }}
+          prerelease: ${{ inputs.prerelease }}
+          generate_release_notes: true
+          files: |
+            release-assets/windows/*
+            release-assets/linux/*
+            release-assets/macos/*
+          body: |
+            Manual build and release for `${{ inputs.ref }}`.
+
+            Target commit: `${{ needs.prepare.outputs.checkout_ref }}`
+            Short SHA: `${{ needs.prepare.outputs.short_sha }}`
