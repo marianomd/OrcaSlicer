@@ -35,7 +35,7 @@ class PrintHostSendDialog : public GUI::MsgDialog
 public:
     PrintHostSendDialog(const boost::filesystem::path &path, PrintHostPostUploadActions post_actions, const wxArrayString& groups, const wxArrayString& storage_paths, const wxArrayString& storage_names, bool switch_to_device_tab);
     virtual ~PrintHostSendDialog() {}
-    virtual boost::filesystem::path filename() const;
+    boost::filesystem::path filename() const;
     PrintHostPostUploadAction post_action() const;
     std::string group() const;
     std::string storage() const;
@@ -202,7 +202,6 @@ public:
                                   const std::vector<FilamentInfo>& project_filaments);
 
     virtual void init() override;
-    virtual boost::filesystem::path filename() const override;
     virtual void EndModal(int ret) override;
     virtual std::map<std::string, std::string> extendedInfo() const override;
 

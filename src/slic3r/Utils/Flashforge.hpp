@@ -1,7 +1,6 @@
 #ifndef slic3r_FlashForge_hpp_
 #define slic3r_FlashForge_hpp_
 
-#include <boost/filesystem/path.hpp>
 #include <vector>
 #include <string>
 #include <wx/string.h>
@@ -45,8 +44,6 @@ public:
     bool                       can_test() const override { return true; }
     PrintHostPostUploadActions get_post_upload_actions() const override { return PrintHostPostUploadAction::StartPrint; }
     std::string                get_host() const override { return m_host; }
-    static std::string         sanitize_upload_filename(const std::string& filename, const std::string& fallback_extension = {});
-    static boost::filesystem::path sanitize_upload_path(const boost::filesystem::path& path, const boost::filesystem::path& fallback_template = {});
     bool                       fetch_material_slots(std::vector<FlashforgeMaterialSlot>& slots, bool* supports_material_station, wxString& msg) const;
     static bool                discover_printers(std::vector<FlashforgeDiscoveredPrinter>& printers, wxString& msg, int timeout_ms = 10000, int idle_timeout_ms = 1500, int max_retries = 3);
 

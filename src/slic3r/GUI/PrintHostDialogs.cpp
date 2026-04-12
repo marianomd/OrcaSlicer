@@ -685,14 +685,12 @@ void FlashforgePrintHostSendDialog::init()
     content_sizer->Add(label_dir_hint);
     content_sizer->AddSpacer(VERT_SPACING);
 
-    const fs::path display_path = Flashforge::sanitize_upload_path(path, m_path);
-
     wxString recent_path = from_u8(app_config->get("recent", CONFIG_KEY_PATH));
     if (recent_path.Length() > 0 && recent_path[recent_path.Length() - 1] != '/')
         recent_path += '/';
     const auto recent_path_len = recent_path.Length();
-    recent_path += display_path.filename().wstring();
-    wxString stem(display_path.stem().wstring());
+    recent_path += path.filename().wstring();
+    wxString stem(path.stem().wstring());
     const auto stem_len = stem.Length();
     txt_filename->SetValue(recent_path);
 
@@ -827,12 +825,6 @@ void FlashforgePrintHostSendDialog::init()
             txt_filename->SetSelection(recent_path_len, recent_path_len + stem_len);
         });
     });
-
-}
-
-fs::path FlashforgePrintHostSendDialog::filename() const
-{
-    return Flashforge::sanitize_upload_path(into_path(txt_filename->GetValue()), m_path);
 }
 
 void FlashforgePrintHostSendDialog::EndModal(int ret)
