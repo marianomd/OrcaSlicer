@@ -343,6 +343,31 @@ wxString Flashforge::get_test_failed_msg(wxString& msg) const
     return GUI::from_u8((boost::format("%s: %s") % prefix % std::string(msg.ToUTF8())).str());
 }
 
+std::string Flashforge::sanitize_upload_filename(const std::string& filename, const std::string& fallback_extension)
+{
+    std::string basename = fs::path(filename).filename().string();
+    if (basename.empty()) {
+        basename = "print";
+        if (!fallback_extension.empty())
+            basename += fallback_extension;
+    }
+
+    for (char& ch : basename) {
+        const bool is_ascii_alnum = (ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z');
+        if (!is_ascii_alnum && ch != '.' && ch != '_' && ch != '-') {
+            ch = '_';
+        }
+    }
+
+    return basename;
+}
+
+fs::path Flashforge::sanitize_upload_path(const fs::path& path, const fs::path& fallback_template)
+{
+    const std::string fallback_extension = fallback_template.filename().extension().string();
+    return path.parent_path() / fs::path(sanitize_upload_filename(path.filename().string(), fallback_extension));
+}
+
 
 bool Flashforge::connect(wxString& msg) const
 {
@@ -376,15 +401,16 @@ bool Flashforge::connect(wxString& msg) const
 bool Flashforge::start_print(wxString& msg, const std::string& filename) const
 {
     Utils::TCPConsole            client(m_host, m_console_port);
-    Slic3r::Utils::SerialMessage startPrintCommand = {(boost::format("~M23 0:/user/%1%") % filename).str(), Slic3r::Utils::Command};
+    const std::string            safe_filename = sanitize_upload_filename(filename);
+    Slic3r::Utils::SerialMessage startPrintCommand = {(boost::format("~M23 0:/user/%1%") % safe_filename).str(), Slic3r::Utils::Command};
     client.enqueue_cmd(startPrintCommand);
     bool res = client.run_queue();
 
     if (!res) {
         msg = wxString::FromUTF8(client.error_message().c_str());
-        BOOST_LOG_TRIVIAL(info) << boost::format("[Flashforge Serial] Failed to start print %1%") % filename;
+        BOOST_LOG_TRIVIAL(info) << boost::format("[Flashforge Serial] Failed to start print %1%") % safe_filename;
     } else
-        BOOST_LOG_TRIVIAL(info) << boost::format("[Flashforge Serial] Started print %1%") % filename;
+        BOOST_LOG_TRIVIAL(info) << boost::format("[Flashforge Serial] Started print %1%") % safe_filename;
 
     return res;
 }
@@ -402,6 +428,8 @@ bool Flashforge::upload(PrintHostUpload upload_data, ProgressFn progress_fn, Err
     try {
 
         res = connect(errormsg);
+        const std::string fallback_extension = upload_data.source_path.extension().string().empty() ? ".gcode" : upload_data.source_path.extension().string();
+        const std::string upload_filename = sanitize_upload_filename(upload_data.upload_path.string(), fallback_extension);
 
         std::ifstream newfile;
         newfile.open(upload_data.source_path.c_str(), std::ios::binary); // open a file to perform read operation using file object
@@ -423,7 +451,7 @@ bool Flashforge::upload(PrintHostUpload upload_data, ProgressFn progress_fn, Err
             newfile.close(); // close the file object.
         }
         Slic3r::Utils::SerialMessage fileuploadCommand =
-            {(boost::format("~M28 %1% 0:/user/%2%") % gcodeFile.size() % upload_data.upload_path.generic_string()).str(),
+            {(boost::format("~M28 %1% 0:/user/%2%") % gcodeFile.size() % upload_filename).str(),
              Slic3r::Utils::Command};
         client.enqueue_cmd(fileuploadCommand);
 
@@ -459,7 +487,7 @@ bool Flashforge::upload(PrintHostUpload upload_data, ProgressFn progress_fn, Err
             res = client.run_queue();
 
             if (upload_data.post_action == PrintHostPostUploadAction::StartPrint)
-                res = start_print(errormsg, upload_data.upload_path.string());
+                res = start_print(errormsg, upload_filename);
         }
 
     } catch (const std::exception& e) {
@@ -550,7 +578,8 @@ bool Flashforge::upload_local_api(PrintHostUpload upload_data, ProgressFn progre
     material_map_b64.resize(boost::beast::detail::base64::encode(material_map_b64.data(), material_map_json.data(), material_map_json.size()));
 
     auto        url      = make_http_url("uploadGcode");
-    auto        filename = upload_data.upload_path.filename().string();
+    const std::string fallback_extension = upload_data.source_path.extension().string().empty() ? (upload_data.use_3mf ? ".3mf" : ".gcode") : upload_data.source_path.extension().string();
+    auto        filename = sanitize_upload_filename(upload_data.upload_path.string(), fallback_extension);
     std::string file_size;
     try {
         file_size = std::to_string(fs::file_size(upload_data.source_path));
