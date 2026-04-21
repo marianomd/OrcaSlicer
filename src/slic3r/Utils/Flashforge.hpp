@@ -51,7 +51,6 @@ private:
     std::string m_host;
     std::string m_serial_number;
     std::string m_check_code;
-    bool        m_supports_material_station {false};
     std::string m_console_port;
     const int m_bufferSize;
     GCodeFlavor m_gcFlavor;

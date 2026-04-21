@@ -206,7 +206,6 @@ Flashforge::Flashforge(DynamicPrintConfig* config)
     : m_host()
     , m_serial_number()
     , m_check_code()
-    , m_supports_material_station(false)
     , m_console_port("8899")
     , m_gcFlavor(gcfMarlinLegacy)
     , m_bufferSize(4096) // 4K buffer size
@@ -214,8 +213,6 @@ Flashforge::Flashforge(DynamicPrintConfig* config)
     m_host          = safe_config_string(config, "print_host");
     m_serial_number = safe_config_string(config, "flashforge_serial_number");
     m_check_code    = safe_config_string(config, "printhost_apikey");
-    const auto printer_model = safe_config_string(config, "printer_model");
-    m_supports_material_station = boost::icontains(printer_model, "AD5X");
 
     if (config != nullptr) {
         if (const auto* gcode_flavor = config->option<ConfigOptionEnum<GCodeFlavor>>("gcode_flavor"); gcode_flavor != nullptr)
@@ -542,7 +539,7 @@ bool Flashforge::fetch_material_slots(std::vector<FlashforgeMaterialSlot>& slots
         reports_material_station = true;
 
     if (supports_material_station != nullptr)
-        *supports_material_station = reports_material_station || m_supports_material_station;
+        *supports_material_station = reports_material_station;
 
     for (const auto& slot : slot_infos) {
         FlashforgeMaterialSlot info;
