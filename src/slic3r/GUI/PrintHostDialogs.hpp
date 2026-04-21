@@ -1,7 +1,6 @@
 #ifndef slic3r_PrintHostSendDialog_hpp_
 #define slic3r_PrintHostSendDialog_hpp_
 
-#include <set>
 #include <string>
 #include <vector>
 #include <boost/filesystem/path.hpp>
@@ -215,7 +214,6 @@ private:
     bool ensure_slots_loaded(bool force_reload = false);
     void rebuild_mapping_rows();
     void auto_assign_mappings();
-    void ensure_unique_slot_selection(wxWindow* changed_card, int selected_slot_id);
     void refresh_mapping_card(MappingRow& row);
     void sync_mapping_section_visibility();
     const Slic3r::FlashforgeMaterialSlot* find_slot_by_id(const std::string& slot_id_text) const;

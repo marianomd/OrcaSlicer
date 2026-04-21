@@ -221,7 +221,7 @@ public:
         Refresh();
     }
 
-    void update_slots(const std::vector<Slic3r::FlashforgeMaterialSlot>& slots, const std::set<int>&, int, const std::function<bool(const Slic3r::FlashforgeMaterialSlot&)>& matcher)
+    void update_slots(const std::vector<Slic3r::FlashforgeMaterialSlot>& slots, const std::function<bool(const Slic3r::FlashforgeMaterialSlot&)>& matcher)
     {
         for (size_t i = 0; i < m_cards.size(); ++i) {
             Slic3r::FlashforgeMaterialSlot slot;
@@ -260,7 +260,7 @@ private:
 class FlashforgeMaterialMapWidget : public wxPanel
 {
 public:
-    using SelectFn = std::function<void(FlashforgeMaterialMapWidget*, int)>;
+    using SelectFn = std::function<void(FlashforgeMaterialMapWidget*)>;
 
     FlashforgeMaterialMapWidget(wxWindow* parent, int tool_id, const wxColour& color, const wxString& material_name, SelectFn on_select)
         : wxPanel(parent, wxID_ANY)
@@ -309,10 +309,9 @@ public:
         Refresh();
     }
 
-    void update_popup_slots(const std::vector<Slic3r::FlashforgeMaterialSlot>& slots, const std::set<int>& used_slots, const std::function<bool(const Slic3r::FlashforgeMaterialSlot&)>& matcher)
+    void update_popup_slots(const std::vector<Slic3r::FlashforgeMaterialSlot>& slots, const std::function<bool(const Slic3r::FlashforgeMaterialSlot&)>& matcher)
     {
         m_slots_snapshot = slots;
-        m_used_slots     = used_slots;
         m_matcher        = matcher;
     }
 
@@ -328,14 +327,14 @@ private:
             return;
 
         FlashforgeSlotDialog dlg(this, m_name);
-        dlg.update_slots(m_slots_snapshot, m_used_slots, m_slot_id, m_matcher);
+        dlg.update_slots(m_slots_snapshot, m_matcher);
         m_selected = true;
         Refresh();
         if (dlg.ShowModal() == wxID_OK && dlg.has_selection()) {
             m_slot_id    = dlg.selected_slot_id();
             m_slot_color = dlg.selected_color();
             if (m_select_fn)
-                m_select_fn(this, m_slot_id);
+                m_select_fn(this);
         }
         m_selected = false;
         Refresh();
@@ -405,7 +404,6 @@ private:
     bool                 m_mapping_enabled {true};
     SelectFn             m_select_fn;
     std::vector<Slic3r::FlashforgeMaterialSlot> m_slots_snapshot;
-    std::set<int>                               m_used_slots;
     std::function<bool(const Slic3r::FlashforgeMaterialSlot&)> m_matcher;
 };
 
@@ -935,8 +933,15 @@ void FlashforgePrintHostSendDialog::rebuild_mapping_rows()
 
     for (const auto& filament : m_project_filaments) {
         auto* card = new FlashforgeMaterialMapWidget(this, filament.id, to_wx_colour(filament.color), from_u8(filament.get_display_filament_type()),
-                                                     [this](FlashforgeMaterialMapWidget* changed_card, int selected_slot_id) {
-                                                         ensure_unique_slot_selection(changed_card, selected_slot_id);
+                                                     [this](FlashforgeMaterialMapWidget* changed_card) {
+                                                         if (changed_card == nullptr)
+                                                             return;
+                                                         for (auto& row : m_mapping_rows) {
+                                                             if (row.card == changed_card) {
+                                                                 refresh_mapping_card(row);
+                                                                 break;
+                                                             }
+                                                         }
                                                      });
         m_mapping_wrap_sizer->Add(card, 0, wxRIGHT | wxBOTTOM | wxFIXED_MINSIZE, FromDIP(10));
 
@@ -981,34 +986,15 @@ void FlashforgePrintHostSendDialog::auto_assign_mappings()
     }
 }
 
-void FlashforgePrintHostSendDialog::ensure_unique_slot_selection(wxWindow* changed_card, int selected_slot_id)
-{
-    auto* changed = as_ff_map_widget(changed_card);
-    if (changed == nullptr || selected_slot_id <= 0)
-        return;
-
-    for (auto& row : m_mapping_rows)
-        refresh_mapping_card(row);
-}
-
 void FlashforgePrintHostSendDialog::refresh_mapping_card(MappingRow& row)
 {
     auto* card = as_ff_map_widget(row.card);
     if (card == nullptr)
         return;
 
-    std::set<int> used_slots;
-    for (const auto& item : m_mapping_rows) {
-        auto* item_card = as_ff_map_widget(item.card);
-        if (item_card == nullptr || item_card == card)
-            continue;
-        if (item_card->selected_slot_id() > 0)
-            used_slots.insert(item_card->selected_slot_id());
-    }
-
     const auto* filament = find_filament_by_tool_id(row.tool_id);
     card->set_enable_mapping(m_use_material_station);
-    card->update_popup_slots(m_slots, used_slots, [this, filament](const FlashforgeMaterialSlot& slot) {
+    card->update_popup_slots(m_slots, [this, filament](const FlashforgeMaterialSlot& slot) {
         return filament != nullptr && slot_matches_filament(slot, *filament);
     });
 
