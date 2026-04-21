@@ -129,9 +129,10 @@ void BBLTopbarArt::DrawButton(wxDC& dc, wxWindow* wnd, const wxAuiToolBarItem& i
     int bmpX = 0, bmpY = 0;
     int textX = 0, textY = 0;
 
-    const wxBitmap& bmp = item.GetState() & wxAUI_BUTTON_STATE_DISABLED
-        ? item.GetDisabledBitmap()
-        : item.GetBitmap();
+    // ORCA resolves the toolbar item bitmap using the actual window DPI context used for painting.
+    // GetBitmap() / GetDisabledBitmap() was using internal window pointer (m_window), not the paint-time wnd
+    // m_window was created before final DPI context was known so items not scales properly
+    const wxBitmap bmp = item.GetCurrentBitmapFor(wnd);
 
     const wxSize bmpSize = bmp.IsOk() ? bmp.GetScaledSize() : wxSize(0, 0);
 
@@ -771,7 +772,7 @@ wxAuiToolBarItem* BBLTopbar::FindToolByCurrentPosition()
     return this->FindToolByPosition(client_pos.x, client_pos.y);
 }
 
-#ifdef __WIN32__
+#ifdef __WXMSW__
 WXLRESULT CenteredTitle::MSWWindowProc(WXUINT nMsg, WXWPARAM wParam, WXLPARAM lParam)
 {
     switch (nMsg) {
