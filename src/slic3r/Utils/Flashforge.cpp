@@ -1,5 +1,6 @@
 #include "Flashforge.hpp"
 #include <algorithm>
+#include <array>
 #include <ctime>
 #include <chrono>
 #include <thread>
