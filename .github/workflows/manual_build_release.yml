@@ -204,6 +204,7 @@ jobs:
   create_release:
     name: Create GitHub Release
     runs-on: ubuntu-24.04
+    if: ${{ always() && needs.prepare.result == 'success' && (needs.build_linux.result == 'success' || needs.flatpak.result == 'success' || needs.build_windows.result == 'success' || needs.build_macos_universal.result == 'success') }}
     needs:
       - prepare
       - build_linux
@@ -211,8 +212,13 @@ jobs:
       - build_windows
       - build_macos_universal
     steps:
+      - name: Prepare release asset directories
+        shell: bash
+        run: mkdir -p release-assets/windows release-assets/linux release-assets/flatpak release-assets/macos
+
       - name: Download Windows artifacts
         uses: actions/download-artifact@v8
+        continue-on-error: true
         with:
           pattern: OrcaSlicer_Windows_*
           path: release-assets/windows
@@ -220,6 +226,7 @@ jobs:
 
       - name: Download Linux artifacts
         uses: actions/download-artifact@v8
+        continue-on-error: true
         with:
           pattern: OrcaSlicer_Linux_ubuntu_*
           path: release-assets/linux
@@ -227,6 +234,7 @@ jobs:
 
       - name: Download Flatpak artifacts
         uses: actions/download-artifact@v8
+        continue-on-error: true
         with:
           pattern: OrcaSlicer-Linux-flatpak_*
           path: release-assets/flatpak
@@ -234,14 +242,28 @@ jobs:
 
       - name: Download macOS artifacts
         uses: actions/download-artifact@v8
+        continue-on-error: true
         with:
           pattern: OrcaSlicer_Mac_universal_*
           path: release-assets/macos
           merge-multiple: true
 
-      - name: Show collected assets
+      - name: Collect release assets
+        id: assets
         shell: bash
-        run: find release-assets -maxdepth 2 -type f | sort
+        run: |
+          files="$(find release-assets -type f | sort)"
+          if [ -z "$files" ]; then
+            echo "No release assets were found."
+            exit 1
+          fi
+
+          echo "$files"
+          {
+            echo "files<<EOF"
+            echo "$files"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
@@ -251,11 +273,7 @@ jobs:
           name: ${{ needs.prepare.outputs.release_name }}
           prerelease: ${{ inputs.prerelease }}
           generate_release_notes: true
-          files: |
-            release-assets/windows/*
-            release-assets/linux/*
-            release-assets/flatpak/*
-            release-assets/macos/*
+          files: ${{ steps.assets.outputs.files }}
           body: |
             Manual build and release for `${{ inputs.ref }}`.
 
