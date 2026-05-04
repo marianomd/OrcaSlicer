@@ -1,0 +1,91 @@
+name: Publish Existing Run Artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: GitHub Actions run ID to publish artifacts from
+        required: true
+        type: string
+      release_tag:
+        description: Release tag to create or update
+        required: true
+        type: string
+      release_name:
+        description: Optional release name
+        required: false
+        default: ""
+        type: string
+      prerelease:
+        description: Mark the GitHub release as a pre-release
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    name: Publish Existing Artifacts
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download artifacts from run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          mkdir -p downloaded-artifacts release-assets
+          gh run download "${{ inputs.run_id }}" \
+            --repo "${{ github.repository }}" \
+            --dir downloaded-artifacts
+
+      - name: Collect release assets
+        id: assets
+        shell: bash
+        run: |
+          find downloaded-artifacts -type f | sort
+
+          while IFS= read -r file; do
+            case "$(basename "$file")" in
+              OrcaSlicer_Windows_*|OrcaSlicer_Linux_ubuntu_*|OrcaSlicer-Linux-flatpak_*|OrcaSlicer_Mac_universal_*)
+                cp "$file" release-assets/
+                ;;
+            esac
+          done < <(find downloaded-artifacts -type f | sort)
+
+          files="$(find release-assets -type f | sort)"
+          if [ -z "$files" ]; then
+            echo "No release assets matching the expected OrcaSlicer artifact names were found."
+            exit 1
+          fi
+
+          echo "$files"
+          {
+            echo "files<<EOF"
+            echo "$files"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Compute release name
+        id: release
+        shell: bash
+        run: |
+          release_name="${{ inputs.release_name }}"
+          if [ -z "$release_name" ]; then
+            release_name="Manual artifacts from run ${{ inputs.run_id }}"
+          fi
+
+          echo "release_name=$release_name" >> "$GITHUB_OUTPUT"
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          name: ${{ steps.release.outputs.release_name }}
+          prerelease: ${{ inputs.prerelease }}
+          generate_release_notes: true
+          files: ${{ steps.assets.outputs.files }}
+          body: |
+            Published existing artifacts from workflow run `${{ inputs.run_id }}`.
